@@ -3,7 +3,7 @@ import Taro, { useDidHide, useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Text, Textarea, View } from '@tarojs/components';
 import { EmptyState } from '@/components/EmptyState';
 import { SectionCard } from '@/components/SectionCard';
-import { DEFAULT_CHAT_USERNAME, DEFAULT_ELDER_NAME } from '@/config/runtime';
+import { DEFAULT_CHAT_USERNAME } from '@/config/runtime';
 import {
   chatWithAvatar,
   getAvatarRelayStatus,
@@ -17,6 +17,7 @@ import {
   sanitizeInteractionContent,
   type InteractionMessage,
 } from '@/services/interaction';
+import { getElderlySession } from '@/utils/session';
 
 type BusyAction = 'chat' | 'microphone' | 'speak' | null;
 type ChatRole = 'assistant' | 'user';
@@ -98,6 +99,7 @@ interface AvatarRelayScreenProps {
 }
 
 export function AvatarRelayScreen({ stageOnly = false }: AvatarRelayScreenProps) {
+  const { elderName } = getElderlySession();
   const [loading, setLoading] = useState(true);
   const [rendererStatus, setRendererStatus] = useState<AvatarRelayStatus | null>(null);
   const [conversation, setConversation] = useState<ChatItem[]>([]);
@@ -403,7 +405,7 @@ export function AvatarRelayScreen({ stageOnly = false }: AvatarRelayScreenProps)
     <View className='ke-page ke-page--compact'>
       <View className='ke-hero'>
         <Text className='ke-eyebrow'>{stageOnly ? 'Fallback Stage' : 'Fallback Preview'}</Text>
-        <Text className='ke-title'>{DEFAULT_ELDER_NAME} 的数字人陪伴页</Text>
+        <Text className='ke-title'>{elderName} 的数字人陪伴页</Text>
         <Text className='ke-subtitle'>
           当前显示的是小程序原生兜底预览，不是魔珐星云平台中配置的 3D 数字人。真实星云数字人需要走官方 H5、Android SDK 或视频生成/流式输出能力。
         </Text>

@@ -23,6 +23,7 @@ export interface FamilyAlert {
   id: number;
   family_id: string;
   elderly_id?: number;
+  elderly_name?: string;
   alert_type: 'sos_emergency' | 'contact_family' | 'medication' | 'emotion' | 'inactive' | 'emergency';
   level: 'low' | 'medium' | 'high';
   title?: string;
@@ -30,8 +31,10 @@ export interface FamilyAlert {
   source: 'elderly' | 'system' | 'family';
   handled: boolean;
   handled_at?: string;
+  handler_name?: string;
   reply_message?: string;
   read: boolean;
+  metadata?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -132,6 +135,42 @@ export interface MoodStatsResponse {
   };
   today_count: number;
   days: number;
+}
+
+export interface FamilyUser {
+  id: number;
+  user_type: 'family' | 'elderly' | string;
+  name: string;
+  phone?: string;
+  family_id: string;
+  created_at?: string;
+}
+
+export interface Counselor {
+  id: number;
+  name: string;
+  title: string;
+  experience?: string;
+  specialty?: string;
+  rating?: string;
+  avatar?: string;
+  available: boolean;
+}
+
+export interface Consultation {
+  id: number;
+  family_id: string;
+  elderly_id?: number;
+  counselor_id?: number;
+  counselor_name?: string;
+  counselor_title?: string;
+  counselor_avatar?: string;
+  consultation_type: 'phone' | 'video' | 'text' | string;
+  scheduled_time: string;
+  duration: number;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | string;
+  note?: string;
+  created_at?: string;
 }
 
 export const moodLabelMap: Record<MoodType, string> = {
@@ -244,6 +283,8 @@ export async function getFamilyAlerts(
   options: {
     handled?: boolean;
     read?: boolean;
+    elderlyId?: number;
+    level?: string;
     limit?: number;
   } = {}
 ) {
@@ -251,6 +292,8 @@ export async function getFamilyAlerts(
     family_id: familyId,
     handled: options.handled,
     read: options.read,
+    elderly_id: options.elderlyId,
+    level: options.level,
     limit: options.limit,
   });
 
@@ -265,10 +308,16 @@ export async function markAlertAsRead(alertId: number) {
   return data.success;
 }
 
-export async function handleAlert(alertId: number) {
+export async function handleAlert(
+  alertId: number,
+  payload: {
+    handled_by?: number;
+    reply_message?: string;
+  } = {}
+) {
   const data = await request<{ success: boolean }>(`/family/alerts/${alertId}/handle`, {
     method: 'POST',
-    data: {},
+    data: payload,
   });
   return data.success;
 }
@@ -286,6 +335,69 @@ export async function getAlertStats(familyId = DEFAULT_FAMILY_ID) {
   }>(`/family/alerts/stats?family_id=${familyId}`);
 }
 
+export async function getFamilyUsers(familyId = DEFAULT_FAMILY_ID) {
+  const data = await request<{ users: FamilyUser[] }>(`/users/${familyId}`);
+  return data.users || [];
+}
+
+export async function getCounselors() {
+  const data = await request<{ counselors: Counselor[] }>('/counselors');
+  return data.counselors || [];
+}
+
+export async function getFamilyConsultations(familyId = DEFAULT_FAMILY_ID, limit = 20) {
+  const params = buildQueryString({
+    family_id: familyId,
+    limit: String(limit),
+  });
+  const data = await request<{ consultations: Consultation[] }>(`/consultations?${params}`);
+  return data.consultations || [];
+}
+
+export async function createFamilyConsultation(payload: {
+  family_id?: string;
+  elderly_id?: number;
+  counselor_id?: number;
+  consultation_type: 'phone' | 'video' | 'text';
+  scheduled_time: string;
+  duration?: number;
+  status?: Consultation['status'];
+  note?: string;
+}) {
+  const data = await request<{ consultation_id: number }>('/consultations', {
+    method: 'POST',
+    data: {
+      family_id: payload.family_id || DEFAULT_FAMILY_ID,
+      elderly_id: payload.elderly_id,
+      counselor_id: payload.counselor_id,
+      consultation_type: payload.consultation_type,
+      scheduled_time: payload.scheduled_time,
+      duration: payload.duration ?? 45,
+      status: payload.status ?? 'scheduled',
+      note: payload.note || '',
+    },
+  });
+  return data.consultation_id;
+}
+
+export async function updateFamilyConsultation(
+  consultationId: number,
+  payload: {
+    consultation_type?: Consultation['consultation_type'];
+    scheduled_time?: string;
+    duration?: number;
+    status?: Consultation['status'];
+    note?: string;
+    counselor_id?: number;
+  }
+) {
+  const data = await request<{ success: boolean }>(`/consultations/${consultationId}`, {
+    method: 'PUT',
+    data: payload,
+  });
+  return data.success;
+}
+
 export async function getFamilySchedules(familyId = DEFAULT_FAMILY_ID) {
   const data = await request<{ schedules: Schedule[] }>(`/family/schedules?family_id=${familyId}`);
   return data.schedules || [];
@@ -297,6 +409,22 @@ export async function createSchedule(payload: Schedule) {
     data: payload,
   });
   return data.schedule_id;
+}
+
+export async function updateSchedule(
+  scheduleId: number,
+  payload: Partial<
+    Pick<
+      Schedule,
+      'title' | 'description' | 'schedule_type' | 'schedule_time' | 'repeat_type' | 'repeat_days' | 'auto_remind' | 'status'
+    >
+  >
+) {
+  const data = await request<{ success: boolean }>(`/family/schedules/${scheduleId}`, {
+    method: 'PUT',
+    data: payload,
+  });
+  return data.success;
 }
 
 export async function deleteSchedule(scheduleId: number) {
@@ -365,6 +493,22 @@ export async function getRecentPlays(familyId = DEFAULT_FAMILY_ID, limit = 3) {
 
 export async function getFamilyMoods(familyId = DEFAULT_FAMILY_ID, limit = 20) {
   const data = await request<{ records: MoodRecord[] }>(`/family/moods?family_id=${familyId}&limit=${limit}`);
+  return data.records || [];
+}
+
+export async function queryFamilyMoodRecords(
+  familyId = DEFAULT_FAMILY_ID,
+  options: {
+    elderlyId?: number;
+    limit?: number;
+  } = {}
+) {
+  const params = buildQueryString({
+    family_id: familyId,
+    elderly_id: options.elderlyId,
+    limit: options.limit ?? 20,
+  });
+  const data = await request<{ records: MoodRecord[] }>(`/family/moods?${params}`);
   return data.records || [];
 }
 

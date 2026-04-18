@@ -87,7 +87,7 @@ export interface Consultation {
   consultation_type: 'phone' | 'video' | 'text' | string;
   scheduled_time: string;
   duration: number;
-  status: 'scheduled' | 'completed' | 'cancelled' | string;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | string;
   note?: string;
   created_at?: string;
 }
@@ -189,6 +189,12 @@ export async function sendContactFamilyAlert(
 
 export async function getTodaySchedules(familyId = DEFAULT_FAMILY_ID) {
   const data = await request<{ schedules: Schedule[] }>(`/elderly/schedules/today?family_id=${familyId}`);
+  return data.schedules || [];
+}
+
+export async function getScheduleHistory(familyId = DEFAULT_FAMILY_ID, limit = 50) {
+  const params = buildQueryString({ family_id: familyId, limit });
+  const data = await request<{ schedules: Schedule[] }>(`/elderly/schedules/history?${params}`);
   return data.schedules || [];
 }
 
@@ -359,12 +365,12 @@ export async function getCounselors() {
 
 export async function getConsultations(
   familyId = DEFAULT_FAMILY_ID,
-  elderlyId = DEFAULT_ELDERLY_ID,
+  elderlyId?: number,
   limit = 20
 ) {
   const params = buildQueryString({
     family_id: familyId,
-    elderly_id: String(elderlyId),
+    elderly_id: elderlyId,
     limit: String(limit),
   });
 
@@ -379,6 +385,7 @@ export async function createConsultation(payload: {
   consultation_type: 'phone' | 'video' | 'text';
   scheduled_time: string;
   duration?: number;
+  status?: Consultation['status'];
   note?: string;
 }) {
   const data = await request<{ consultation_id: number }>('/consultations', {
@@ -390,11 +397,30 @@ export async function createConsultation(payload: {
       consultation_type: payload.consultation_type,
       scheduled_time: payload.scheduled_time,
       duration: payload.duration ?? 45,
+      status: payload.status ?? 'scheduled',
       note: payload.note || '',
     },
   });
 
   return data.consultation_id;
+}
+
+export async function updateConsultation(
+  consultationId: number,
+  payload: {
+    consultation_type?: Consultation['consultation_type'];
+    scheduled_time?: string;
+    duration?: number;
+    status?: Consultation['status'];
+    note?: string;
+    counselor_id?: number;
+  }
+) {
+  const data = await request<{ success: boolean }>(`/consultations/${consultationId}`, {
+    method: 'PUT',
+    data: payload,
+  });
+  return data.success;
 }
 
 export async function getAvatarInteractions(limit = 30) {

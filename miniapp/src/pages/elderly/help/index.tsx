@@ -1,28 +1,29 @@
 import { useCallback, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
-import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
 import {
   getFamilyUsers,
   sendContactFamilyAlert,
   sendSOSAlert,
   type FamilyUser,
 } from '@/services/elderly';
+import { getElderlySession } from '@/utils/session';
 
 export default function ElderlyHelpPage() {
+  const { familyId, elderlyId } = getElderlySession();
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   const [emergencySent, setEmergencySent] = useState(false);
   const [contacts, setContacts] = useState<FamilyUser[]>([]);
 
   const loadContacts = useCallback(async () => {
     try {
-      const users = await getFamilyUsers(DEFAULT_FAMILY_ID);
+      const users = await getFamilyUsers(familyId);
       setContacts(users.filter((item) => item.user_type === 'family'));
     } catch (error) {
       const message = error instanceof Error ? error.message : '联系人加载失败';
       Taro.showToast({ title: message, icon: 'none' });
     }
-  }, []);
+  }, [familyId]);
 
   useDidShow(() => {
     void loadContacts();
@@ -30,7 +31,7 @@ export default function ElderlyHelpPage() {
 
   async function sendEmergency() {
     try {
-      await sendSOSAlert(DEFAULT_FAMILY_ID, DEFAULT_ELDERLY_ID);
+      await sendSOSAlert(familyId, elderlyId);
       setEmergencySent(true);
       setShowEmergencyConfirm(false);
     } catch (error) {
@@ -41,7 +42,7 @@ export default function ElderlyHelpPage() {
 
   async function contactFamily(contact?: FamilyUser) {
     try {
-      await sendContactFamilyAlert(DEFAULT_FAMILY_ID, DEFAULT_ELDERLY_ID);
+      await sendContactFamilyAlert(familyId, elderlyId);
       if (contact?.phone) {
         await Taro.makePhoneCall({ phoneNumber: contact.phone });
       } else {

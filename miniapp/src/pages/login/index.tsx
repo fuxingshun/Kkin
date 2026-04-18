@@ -1,6 +1,13 @@
 import { useState } from 'react';
 import Taro from '@tarojs/taro';
 import { Button, Input, Text, View } from '@tarojs/components';
+import {
+  DEFAULT_ELDERLY_ID,
+  DEFAULT_ELDER_NAME,
+  DEFAULT_FAMILY_ID,
+} from '@/config/runtime';
+import { getFamilyUsers } from '@/services/elderly';
+import { saveElderlySession } from '@/utils/session';
 
 type RoleKey = 'elderly' | 'family' | 'service';
 
@@ -46,9 +53,44 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = () => {
-    void Taro.redirectTo({ url: config.targetUrl });
+  const handleLogin = async () => {
+    try {
+      setSubmitting(true);
+
+      if (role === 'elderly') {
+        const inputValue = username.trim();
+        let elderlyUserId = DEFAULT_ELDERLY_ID;
+        let elderName = inputValue || DEFAULT_ELDER_NAME;
+
+        try {
+          const users = await getFamilyUsers(DEFAULT_FAMILY_ID);
+          const elderlyUsers = users.filter((item) => item.user_type === 'elderly');
+          const matchedUser = elderlyUsers.find(
+            (item) => inputValue && (item.name === inputValue || item.phone === inputValue)
+          ) || elderlyUsers[0];
+
+          if (matchedUser) {
+            elderlyUserId = matchedUser.id;
+            elderName = inputValue || matchedUser.name || elderName;
+          }
+        } catch {
+          // 登录页允许用默认上下文兜底进入，避免演示链路被后端状态卡死。
+        }
+
+        saveElderlySession({
+          role: 'elderly',
+          familyId: DEFAULT_FAMILY_ID,
+          elderlyId: elderlyUserId,
+          elderName,
+        });
+      }
+
+      await Taro.redirectTo({ url: config.targetUrl });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const returnToRole = () => {
@@ -112,7 +154,7 @@ export default function LoginPage() {
               <Text className='login-link'>忘记密码？</Text>
             </View>
 
-            <Button className='login-submit' onClick={handleLogin}>
+            <Button className='login-submit' loading={submitting} onClick={() => void handleLogin()}>
               立即登录
             </Button>
 

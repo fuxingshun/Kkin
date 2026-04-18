@@ -2,13 +2,15 @@ import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
-import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
 import {
   createMoodRecord,
   getMoodRecords,
+  moodLabelMap,
   type MoodRecord,
   type MoodType,
 } from '@/services/elderly';
+import { formatDateTimeText } from '@/utils/format';
+import { getElderlySession } from '@/utils/session';
 
 const emotions: Array<{ label: string; value: MoodType; tone: string; score: number }> = [
   { label: '开心', value: 'happy', tone: 'yellow', score: 9 },
@@ -29,6 +31,7 @@ const activities = [
 ];
 
 export default function ElderlyRecordPage() {
+  const { familyId, elderlyId } = getElderlySession();
   const [selectedEmotion, setSelectedEmotion] = useState<MoodType | ''>('');
   const [selectedSleep, setSelectedSleep] = useState('');
   const [selectedAppetite, setSelectedAppetite] = useState('');
@@ -36,10 +39,11 @@ export default function ElderlyRecordPage() {
   const [medicationTaken, setMedicationTaken] = useState(false);
   const [records, setRecords] = useState<MoodRecord[]>([]);
   const [saving, setSaving] = useState(false);
+  const [showTrendDetails, setShowTrendDetails] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const list = await getMoodRecords(DEFAULT_FAMILY_ID, DEFAULT_ELDERLY_ID, 20);
+      const list = await getMoodRecords(familyId, elderlyId, 20);
       setRecords(list);
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载失败';
@@ -47,7 +51,7 @@ export default function ElderlyRecordPage() {
     } finally {
       Taro.stopPullDownRefresh();
     }
-  }, []);
+  }, [elderlyId, familyId]);
 
   useDidShow(() => {
     void loadData();
@@ -67,6 +71,16 @@ export default function ElderlyRecordPage() {
     () => emotions.find((item) => item.value === selectedEmotion),
     [selectedEmotion]
   );
+  const recentRecords = useMemo(() => records.slice(0, 7), [records]);
+  const averageScore = useMemo(() => {
+    if (!recentRecords.length) {
+      return 0;
+    }
+
+    return (
+      recentRecords.reduce((total, item) => total + (item.mood_score || 0), 0) / recentRecords.length
+    );
+  }, [recentRecords]);
 
   async function saveRecord() {
     if (!selectedEmotion || !selectedEmotionMeta) {
@@ -87,7 +101,7 @@ export default function ElderlyRecordPage() {
 
     try {
       setSaving(true);
-      await createMoodRecord(DEFAULT_FAMILY_ID, selectedEmotion, DEFAULT_ELDERLY_ID, {
+      await createMoodRecord(familyId, selectedEmotion, elderlyId, {
         moodScore: selectedEmotionMeta.score,
         note,
         triggerEvent: activityText,
@@ -207,10 +221,43 @@ export default function ElderlyRecordPage() {
             <View className='ef-trend-row'><Text>情绪记录</Text><Text>{records.length}次</Text></View>
             <View className='ef-trend-row'><Text>最近状态</Text><Text>{records[0]?.mood_type ? emotions.find((item) => item.value === records[0].mood_type)?.label : '未记录'}</Text></View>
             <View className='ef-trend-row'><Text>服药确认</Text><Text>{records.filter((item) => item.note?.includes('已确认')).length}次</Text></View>
+            <View className='ef-trend-row'><Text>平均分</Text><Text>{recentRecords.length ? averageScore.toFixed(1) : '--'}</Text></View>
           </View>
-          <Button className='ef-soft-link-button' onClick={() => Taro.showToast({ title: '已同步数据库记录', icon: 'none' })}>
-            查看详细趋势
+          <Button className='ef-soft-link-button' onClick={() => setShowTrendDetails((value) => !value)}>
+            {showTrendDetails ? '收起详细趋势' : '查看详细趋势'}
           </Button>
+          {showTrendDetails ? (
+            <View className='ef-list' style={{ marginTop: '24rpx' }}>
+              {recentRecords.length ? (
+                recentRecords.map((record, index) => (
+                  <View className='ef-history-card' key={`${record.id || record.created_at || index}`}>
+                    <View className='ef-history-head'>
+                      <View className='ef-history-icon'>{moodLabelMap[record.mood_type]?.slice(0, 1) || '情'}</View>
+                      <View>
+                        <View className='ef-inline'>
+                          <Text className='ef-card-title'>{moodLabelMap[record.mood_type] || record.mood_type}</Text>
+                          <Text className='ef-done-badge'>评分 {record.mood_score}</Text>
+                        </View>
+                        <Text className='ef-muted'>
+                          {formatDateTimeText(record.recorded_at || record.created_at || '') || '刚刚记录'}
+                        </Text>
+                      </View>
+                    </View>
+                    {record.note ? (
+                      <View className='ef-specialty'>
+                        <Text>{record.note}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ))
+              ) : (
+                <View className='ef-history-card'>
+                  <Text className='ef-card-title'>还没有详细记录</Text>
+                  <Text className='ef-card-text'>先完成今天的情绪记录，这里会同步展示最近趋势。</Text>
+                </View>
+              )}
+            </View>
+          ) : null}
         </View>
       </View>
 

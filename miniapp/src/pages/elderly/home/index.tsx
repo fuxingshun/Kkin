@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
-import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
 import {
   getElderlyMessages,
   getFamilyUsers,
@@ -18,6 +17,7 @@ import {
   type RecommendedMedia,
   type Schedule,
 } from '@/services/elderly';
+import { getElderlySession } from '@/utils/session';
 
 function parseDate(value?: string) {
   if (!value) return null;
@@ -52,6 +52,7 @@ function getDateText() {
 }
 
 export default function ElderlyHomePage() {
+  const { familyId, elderlyId, elderName } = getElderlySession();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<FamilyUser[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -63,12 +64,12 @@ export default function ElderlyHomePage() {
     try {
       setLoading(true);
       const [nextUsers, todaySchedules, pendingMessages, allMessages, recommendedMedia, latestMood] = await Promise.all([
-        getFamilyUsers(DEFAULT_FAMILY_ID),
-        getTodaySchedules(DEFAULT_FAMILY_ID),
-        getPendingMessages(DEFAULT_FAMILY_ID),
-        getElderlyMessages(DEFAULT_FAMILY_ID),
-        getRecommendedMedia(DEFAULT_FAMILY_ID, DEFAULT_ELDERLY_ID),
-        getLatestMood(DEFAULT_FAMILY_ID, DEFAULT_ELDERLY_ID),
+        getFamilyUsers(familyId),
+        getTodaySchedules(familyId),
+        getPendingMessages(familyId),
+        getElderlyMessages(familyId),
+        getRecommendedMedia(familyId, elderlyId),
+        getLatestMood(familyId, elderlyId),
       ]);
 
       setUsers(nextUsers);
@@ -83,7 +84,7 @@ export default function ElderlyHomePage() {
       setLoading(false);
       Taro.stopPullDownRefresh();
     }
-  }, []);
+  }, [elderlyId, familyId]);
 
   useDidShow(() => {
     void loadData();
@@ -126,7 +127,7 @@ export default function ElderlyHomePage() {
         <View className='ef-home-hero__top'>
           <View>
             <Text className='ef-home-hero__date'>{getDateText()}</Text>
-            <Text className='ef-home-hero__title'>{getGreetingName(users)}，早上好</Text>
+            <Text className='ef-home-hero__title'>{users.length ? getGreetingName(users) : elderName}，早上好</Text>
           </View>
           <Button className='ef-icon-button ef-icon-button--glass'>{moodLabel.slice(0, 1)}</Button>
         </View>

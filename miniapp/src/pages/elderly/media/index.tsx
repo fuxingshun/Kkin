@@ -3,7 +3,6 @@ import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Image, Text, Video, View } from '@tarojs/components';
 import { EmptyState } from '@/components/EmptyState';
 import { SectionCard } from '@/components/SectionCard';
-import { DEFAULT_FAMILY_ID, DEFAULT_ELDER_NAME } from '@/config/runtime';
 import {
   getMediaUrl,
   getRecommendedMedia,
@@ -14,6 +13,7 @@ import {
   type MoodType,
   type RecommendedMedia,
 } from '@/services/elderly';
+import { getElderlySession } from '@/utils/session';
 
 type FeedbackType = 'like' | 'dislike';
 
@@ -23,6 +23,7 @@ function parseMediaId(value?: string) {
 }
 
 export default function ElderlyMediaPage() {
+  const { familyId, elderlyId, elderName } = getElderlySession();
   const [loading, setLoading] = useState(true);
   const [mediaList, setMediaList] = useState<RecommendedMedia[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -43,7 +44,7 @@ export default function ElderlyMediaPage() {
 
       setCurrentMood(initialMood);
 
-      const recommendedMedia = await getRecommendedMedia(DEFAULT_FAMILY_ID, undefined, initialMood);
+      const recommendedMedia = await getRecommendedMedia(familyId, elderlyId, initialMood);
       setMediaList(recommendedMedia);
 
       if (!recommendedMedia.length) {
@@ -57,7 +58,7 @@ export default function ElderlyMediaPage() {
       const nextIndex = foundIndex >= 0 ? foundIndex : 0;
 
       setCurrentIndex(nextIndex);
-      await recordMediaPlay(recommendedMedia[nextIndex].id);
+      await recordMediaPlay(recommendedMedia[nextIndex].id, elderlyId);
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载失败';
       Taro.showToast({ title: message, icon: 'none' });
@@ -65,7 +66,7 @@ export default function ElderlyMediaPage() {
       setLoading(false);
       Taro.stopPullDownRefresh();
     }
-  }, []);
+  }, [elderlyId, familyId]);
 
   useDidShow(() => {
     void loadData();
@@ -84,7 +85,7 @@ export default function ElderlyMediaPage() {
 
     try {
       setCurrentIndex(nextIndex);
-      await recordMediaPlay(mediaList[nextIndex].id);
+      await recordMediaPlay(mediaList[nextIndex].id, elderlyId);
     } catch (error) {
       const message = error instanceof Error ? error.message : '切换失败';
       Taro.showToast({ title: message, icon: 'none' });
@@ -99,7 +100,7 @@ export default function ElderlyMediaPage() {
     try {
       setFeedbackBusy(true);
       setPendingFeedback(type);
-      await submitMediaFeedback(currentMedia.id, type);
+      await submitMediaFeedback(currentMedia.id, type, elderlyId);
       setFeedbackById((prev) => ({
         ...prev,
         [currentMedia.id]: type,
@@ -121,7 +122,7 @@ export default function ElderlyMediaPage() {
     <View className='ke-page ke-page--compact'>
       <View className='ke-hero'>
         <Text className='ke-eyebrow'>Memory Player</Text>
-        <Text className='ke-title'>{DEFAULT_ELDER_NAME}的回忆播放页</Text>
+        <Text className='ke-title'>{elderName}的回忆播放页</Text>
         <Text className='ke-subtitle'>
           把首页推荐的照片和视频放进一个更容易专注观看的页面里，也顺手把喜欢与不喜欢反馈记下来。
         </Text>

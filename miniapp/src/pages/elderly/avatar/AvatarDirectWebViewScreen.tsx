@@ -1,5 +1,6 @@
 import { WebView } from '@tarojs/components';
-import { DIGITAL_HUMAN_WEB_URL, DEFAULT_ELDER_NAME, DEFAULT_FAMILY_ID } from '@/config/runtime';
+import { DIGITAL_HUMAN_WEB_URL } from '@/config/runtime';
+import { getElderlySession } from '@/utils/session';
 
 interface AvatarDirectWebViewScreenProps {
   stageOnly?: boolean;
@@ -16,10 +17,11 @@ function appendQuery(url: string, params: Record<string, string>) {
 }
 
 export function AvatarDirectWebViewScreen({ stageOnly = false }: AvatarDirectWebViewScreenProps) {
+  const { familyId, elderName } = getElderlySession();
   const src = appendQuery(DIGITAL_HUMAN_WEB_URL, {
     source: 'miniapp',
-    familyId: DEFAULT_FAMILY_ID,
-    elderName: DEFAULT_ELDER_NAME,
+    familyId,
+    elderName,
     layout: 'stage-only',
     direct: '1',
     acceleration: 'hardware',

@@ -1,48 +1,130 @@
-import Taro from '@tarojs/taro';
+import { useCallback, useMemo, useState } from 'react';
+import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
 import { ServiceTabBar } from '@/components/ServiceTabBar';
+import {
+  advanceFollowupStatus,
+  getServiceCases,
+  getServiceFollowups,
+  getServiceTasks,
+  startServiceTask,
+  type ServiceCase,
+  type ServiceFollowup,
+  type ServiceTask,
+} from '@/services/service';
+import { formatDateTimeText } from '@/utils/format';
 
-const taskCards = [
-  { type: '紧急干预', name: '张翠花', reason: '连续 3 天情绪低落', priority: 'high' },
-  { type: '电话回访', name: '李秀英', reason: '定期心理随访', priority: 'medium' },
-];
+function getPriorityClass(priority: ServiceTask['priority']) {
+  return priority === 'high' ? 'service-ticket--high' : '';
+}
 
-const riskCases = [
-  { id: 1, name: '张翠花', age: 68, risk: '高', lastContact: '2 天前' },
-  { id: 2, name: '李秀英', age: 72, risk: '中', lastContact: '5 天前' },
-];
+function getPriorityChip(priority: ServiceTask['priority']) {
+  return priority === 'high' ? 'service-chip--red' : priority === 'medium' ? 'service-chip--amber' : 'service-chip';
+}
 
-const followups = [
-  { time: '09:00', name: '赵大爷', type: '电话随访' },
-  { time: '10:30', name: '钱奶奶', type: '上门探访' },
-  { time: '14:00', name: '孙阿姨', type: '电话随访' },
-];
+function getRiskLabel(risk: ServiceCase['risk']) {
+  if (risk === 'high') return '高风险';
+  if (risk === 'medium') return '中风险';
+  return '低风险';
+}
+
+function getRiskChip(risk: ServiceCase['risk']) {
+  if (risk === 'high') return 'service-chip--red';
+  if (risk === 'medium') return 'service-chip--amber';
+  return 'service-chip--green';
+}
+
+function getFollowupButtonLabel(item: ServiceFollowup) {
+  if (item.status === 'scheduled') return '开始';
+  if (item.status === 'in_progress') return '完成';
+  return '已完成';
+}
 
 export default function ServiceWorkspacePage() {
+  const [tasks, setTasks] = useState<ServiceTask[]>([]);
+  const [cases, setCases] = useState<ServiceCase[]>([]);
+  const [followups, setFollowups] = useState<ServiceFollowup[]>([]);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [nextTasks, nextCases, nextFollowups] = await Promise.all([
+        getServiceTasks(),
+        getServiceCases(),
+        getServiceFollowups(),
+      ]);
+      setTasks(nextTasks);
+      setCases(nextCases);
+      setFollowups(nextFollowups);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '工作台加载失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    }
+  }, []);
+
+  useDidShow(() => {
+    void loadData();
+  });
+
+  const openTasks = useMemo(() => tasks.filter((item) => item.status !== 'completed'), [tasks]);
+  const openCases = useMemo(() => cases.filter((item) => item.risk !== 'low').slice(0, 5), [cases]);
+  const activeFollowups = useMemo(
+    () => followups.filter((item) => item.status !== 'completed').slice(0, 5),
+    [followups]
+  );
+
+  async function handleTask(task: ServiceTask) {
+    try {
+      if (task.status === 'pending') {
+        await startServiceTask(task.alertId);
+      }
+      await Taro.navigateTo({
+        url: `/pages/service/case-detail/index?elderlyId=${task.elderlyId || ''}&alertId=${task.alertId}`,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '处理工单失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    }
+  }
+
+  async function handleFollowup(item: ServiceFollowup) {
+    if (item.status === 'completed') {
+      return;
+    }
+
+    try {
+      await advanceFollowupStatus(item);
+      Taro.showToast({ title: '随访状态已更新', icon: 'success' });
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '更新随访失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    }
+  }
+
   return (
     <View className='service-page'>
       <View className='service-hero'>
         <View className='service-hero__top'>
           <View>
             <Text className='service-kicker'>心理咨询师</Text>
-            <Text className='service-hero__title'>王医生的工作台</Text>
+            <Text className='service-hero__title'>服务工作台</Text>
             <Text className='service-hero__subtitle'>高风险个案、工单和随访安排都在这里。</Text>
           </View>
           <View className='service-avatar'>
-            <Text>医</Text>
+            <Text>服</Text>
           </View>
         </View>
         <View className='service-stat-grid'>
           <View className='service-stat service-stat--glass'>
-            <Text className='service-stat__value'>8</Text>
+            <Text className='service-stat__value'>{openTasks.length}</Text>
             <Text className='service-stat__label'>待处理工单</Text>
           </View>
           <View className='service-stat service-stat--glass'>
-            <Text className='service-stat__value'>3</Text>
-            <Text className='service-stat__label'>高风险老人</Text>
+            <Text className='service-stat__value'>{openCases.length}</Text>
+            <Text className='service-stat__label'>重点个案</Text>
           </View>
           <View className='service-stat service-stat--glass'>
-            <Text className='service-stat__value'>5</Text>
+            <Text className='service-stat__value'>{activeFollowups.length}</Text>
             <Text className='service-stat__label'>今日随访</Text>
           </View>
         </View>
@@ -56,65 +138,95 @@ export default function ServiceWorkspacePage() {
           </Text>
         </View>
         <View className='service-list'>
-          {taskCards.map((task) => (
-            <View
-              key={`${task.type}-${task.name}`}
-              className={`service-ticket ${task.priority === 'high' ? 'service-ticket--high' : ''}`}
-            >
-              <View className='service-chip-row'>
-                <Text className={`service-chip ${task.priority === 'high' ? 'service-chip--red' : 'service-chip--amber'}`}>
-                  {task.type}
-                </Text>
-                <Text className='service-ticket__name'>{task.name}</Text>
+          {openTasks.length ? (
+            openTasks.slice(0, 3).map((task) => (
+              <View key={task.id} className={`service-ticket ${getPriorityClass(task.priority)}`}>
+                <View className='service-chip-row'>
+                  <Text className={`service-chip ${getPriorityChip(task.priority)}`}>{task.typeLabel}</Text>
+                  <Text className='service-ticket__name'>{task.elderlyName}</Text>
+                </View>
+                <Text className='service-card-text'>{task.reason}</Text>
+                <Button className='service-button service-button--primary' onClick={() => void handleTask(task)}>
+                  {task.status === 'pending' ? '立即处理' : '继续处理'}
+                </Button>
               </View>
-              <Text className='service-card-text'>{task.reason}</Text>
-              <Button className='service-button service-button--primary'>立即处理</Button>
+            ))
+          ) : (
+            <View className='service-ticket'>
+              <Text className='service-card-title'>暂无待处理工单</Text>
+              <Text className='service-card-text'>老人端新的异常、求助或提醒会实时进入这里。</Text>
             </View>
-          ))}
+          )}
         </View>
       </View>
 
       <View className='service-section'>
         <View className='service-section__head'>
-          <Text className='service-section__title'>高风险老人</Text>
+          <Text className='service-section__title'>重点老人</Text>
           <Text className='service-link' onClick={() => Taro.redirectTo({ url: '/pages/service/cases/index' })}>
             查看全部
           </Text>
         </View>
         <View className='service-list'>
-          {riskCases.map((item) => (
-            <View className='service-case-row' key={item.name} onClick={() => Taro.navigateTo({ url: `/pages/service/case-detail/index?id=${item.id}` })}>
-              <View className='service-case-row__avatar'>
-                <Text>{item.name.slice(0, 1)}</Text>
+          {openCases.length ? (
+            openCases.map((item) => (
+              <View
+                className='service-case-row'
+                key={item.elderlyId}
+                onClick={() => Taro.navigateTo({ url: `/pages/service/case-detail/index?elderlyId=${item.elderlyId}&alertId=${item.latestAlertId || ''}` })}
+              >
+                <View className='service-case-row__avatar'>
+                  <Text>{item.name.slice(0, 1)}</Text>
+                </View>
+                <View className='service-case-row__body'>
+                  <Text className='service-card-title'>{item.name}</Text>
+                  <Text className='service-card-meta'>最近联系：{item.lastHelpAt ? formatDateTimeText(item.lastHelpAt) : '暂无'}</Text>
+                </View>
+                <Text className={`service-chip ${getRiskChip(item.risk)}`}>{getRiskLabel(item.risk)}</Text>
               </View>
+            ))
+          ) : (
+            <View className='service-case-row'>
               <View className='service-case-row__body'>
-                <Text className='service-card-title'>{item.name} · {item.age} 岁</Text>
-                <Text className='service-card-meta'>最近联系：{item.lastContact}</Text>
+                <Text className='service-card-title'>暂无高优先级个案</Text>
+                <Text className='service-card-meta'>当前没有需要优先跟进的老人。</Text>
               </View>
-              <Text className={`service-chip ${item.risk === '高' ? 'service-chip--red' : 'service-chip--amber'}`}>
-                {item.risk}风险
-              </Text>
             </View>
-          ))}
+          )}
         </View>
       </View>
 
       <View className='service-section'>
         <View className='service-section__head'>
           <Text className='service-section__title'>今日随访任务</Text>
-          <Text className='service-section__desc'>5 个任务</Text>
+          <Text className='service-section__desc'>{activeFollowups.length} 个任务</Text>
         </View>
         <View className='service-list'>
-          {followups.map((item) => (
-            <View className='service-follow-row' key={`${item.time}-${item.name}`}>
-              <Text className='service-follow-row__time'>{item.time}</Text>
-              <View className='service-follow-row__body'>
-                <Text className='service-card-title'>{item.name}</Text>
-                <Text className='service-card-meta'>{item.type}</Text>
+          {activeFollowups.length ? (
+            activeFollowups.map((item) => (
+              <View className='service-follow-row' key={item.id}>
+                <Text className='service-follow-row__time'>{formatDateTimeText(item.scheduledTime)}</Text>
+                <View className='service-follow-row__body'>
+                  <Text className='service-card-title'>{item.elderlyName}</Text>
+                  <Text className='service-card-meta'>{item.consultationType}</Text>
+                </View>
+                <Button
+                  className='service-mini-button'
+                  disabled={item.status === 'completed'}
+                  onClick={() => void handleFollowup(item)}
+                >
+                  {getFollowupButtonLabel(item)}
+                </Button>
               </View>
-              <Button className='service-mini-button'>开始</Button>
+            ))
+          ) : (
+            <View className='service-follow-row'>
+              <View className='service-follow-row__body'>
+                <Text className='service-card-title'>暂无随访安排</Text>
+                <Text className='service-card-meta'>新的咨询预约和服务记录会汇总到这里。</Text>
+              </View>
             </View>
-          ))}
+          )}
         </View>
       </View>
 

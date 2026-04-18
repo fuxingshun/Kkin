@@ -3,10 +3,10 @@ import { Text, View } from '@tarojs/components';
 import { ServiceTabBar } from '@/components/ServiceTabBar';
 
 const menuItems = [
-  { title: '个人信息', desc: '王医生，心理咨询师' },
-  { title: '所属机构', desc: '阳光社区心理服务站' },
-  { title: '设置', desc: '通知、排班和工作偏好' },
-  { title: '帮助中心', desc: '服务流程与平台支持' },
+  { title: '个人信息', desc: '服务人员资料与执业信息', path: '/pages/service/workspace/index' },
+  { title: '重点个案', desc: '查看当前重点老人和风险分层', path: '/pages/service/cases/index' },
+  { title: '工单处理', desc: '进入待处理与处理中工单列表', path: '/pages/service/tasks/index' },
+  { title: '随访安排', desc: '查看并推进随访计划', path: '/pages/service/followup/index' },
 ];
 
 export default function ServiceProfilePage() {
@@ -15,11 +15,11 @@ export default function ServiceProfilePage() {
       <View className='service-hero service-hero--solid'>
         <View className='service-profile-head'>
           <View className='service-profile-head__avatar'>
-            <Text>王</Text>
+            <Text>服</Text>
           </View>
           <View>
-            <Text className='service-hero__title'>王医生</Text>
-            <Text className='service-hero__subtitle'>心理咨询师</Text>
+            <Text className='service-hero__title'>服务人员中心</Text>
+            <Text className='service-hero__subtitle'>把个案、工单和随访统一收口管理</Text>
           </View>
         </View>
       </View>
@@ -28,24 +28,24 @@ export default function ServiceProfilePage() {
         <Text className='service-section__title'>工作概况</Text>
         <View className='service-two-grid'>
           <View className='service-info-box'>
-            <Text className='service-stat__value'>32</Text>
-            <Text className='service-card-meta'>服务个案</Text>
+            <Text className='service-stat__value'>实时</Text>
+            <Text className='service-card-meta'>任务同步</Text>
           </View>
           <View className='service-info-box'>
-            <Text className='service-stat__value'>96%</Text>
-            <Text className='service-card-meta'>按时完成</Text>
+            <Text className='service-stat__value'>闭环</Text>
+            <Text className='service-card-meta'>处理流转</Text>
           </View>
         </View>
       </View>
 
       <View className='service-section'>
-        <Text className='service-section__title'>账户设置</Text>
+        <Text className='service-section__title'>工作入口</Text>
         <View className='service-list'>
           {menuItems.map((item) => (
             <View
               className='service-menu-row'
               key={item.title}
-              onClick={() => Taro.showToast({ title: '功能完善中', icon: 'none' })}
+              onClick={() => Taro.redirectTo({ url: item.path })}
             >
               <View>
                 <Text className='service-card-title'>{item.title}</Text>

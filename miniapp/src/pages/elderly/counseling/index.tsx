@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
-import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
 import {
   createConsultation,
   getConsultations,
@@ -10,6 +9,7 @@ import {
   type Counselor,
 } from '@/services/elderly';
 import { formatDateTimeText, formatDateTimeValue } from '@/utils/format';
+import { getElderlySession } from '@/utils/session';
 
 const methods = [
   { type: 'phone' as const, icon: '电', title: '电话咨询', desc: '方便快捷，随时接听', className: 'ef-method--green' },
@@ -32,6 +32,7 @@ function getTypeLabel(type: string) {
 }
 
 export default function ElderlyCounselingPage() {
+  const { familyId, elderlyId } = getElderlySession();
   const [counselors, setCounselors] = useState<Counselor[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [selectedType, setSelectedType] = useState<'phone' | 'video' | 'text'>('phone');
@@ -41,7 +42,7 @@ export default function ElderlyCounselingPage() {
     try {
       const [nextCounselors, nextConsultations] = await Promise.all([
         getCounselors(),
-        getConsultations(DEFAULT_FAMILY_ID, DEFAULT_ELDERLY_ID, 20),
+        getConsultations(familyId, elderlyId, 20),
       ]);
       setCounselors(nextCounselors);
       setConsultations(nextConsultations);
@@ -49,7 +50,7 @@ export default function ElderlyCounselingPage() {
       const message = error instanceof Error ? error.message : '加载失败';
       Taro.showToast({ title: message, icon: 'none' });
     }
-  }, []);
+  }, [elderlyId, familyId]);
 
   useDidShow(() => {
     void loadData();
@@ -61,8 +62,8 @@ export default function ElderlyCounselingPage() {
       const scheduled = new Date(Date.now() + 24 * 60 * 60 * 1000);
       scheduled.setHours(19, 0, 0, 0);
       await createConsultation({
-        family_id: DEFAULT_FAMILY_ID,
-        elderly_id: DEFAULT_ELDERLY_ID,
+        family_id: familyId,
+        elderly_id: elderlyId,
         counselor_id: counselor?.id,
         consultation_type: selectedType,
         scheduled_time: formatDateTimeValue(scheduled),

@@ -3,9 +3,9 @@ import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Image, Text, View } from '@tarojs/components';
 import { EmptyState } from '@/components/EmptyState';
 import { SectionCard } from '@/components/SectionCard';
-import { DEFAULT_ELDER_NAME } from '@/config/runtime';
 import { getMediaHistory, getMediaUrl, getThumbnailUrl, type MediaHistoryEntry } from '@/services/elderly';
 import { formatDateTimeText, formatDurationSeconds } from '@/utils/format';
+import { getElderlySession } from '@/utils/session';
 
 function getFeedbackLabel(feedbackType?: MediaHistoryEntry['feedback_type']) {
   if (feedbackType === 'like') {
@@ -20,13 +20,14 @@ function getFeedbackLabel(feedbackType?: MediaHistoryEntry['feedback_type']) {
 }
 
 export default function ElderlyMediaHistoryPage() {
+  const { elderlyId, elderName } = getElderlySession();
   const [loading, setLoading] = useState(true);
   const [historyList, setHistoryList] = useState<MediaHistoryEntry[]>([]);
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const history = await getMediaHistory(undefined, 30);
+      const history = await getMediaHistory(elderlyId, 30);
       setHistoryList(history);
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载失败';
@@ -35,7 +36,7 @@ export default function ElderlyMediaHistoryPage() {
       setLoading(false);
       Taro.stopPullDownRefresh();
     }
-  }, []);
+  }, [elderlyId]);
 
   useDidShow(() => {
     void loadData();
@@ -63,7 +64,7 @@ export default function ElderlyMediaHistoryPage() {
     <View className='ke-page ke-page--compact'>
       <View className='ke-hero'>
         <Text className='ke-eyebrow'>Viewing History</Text>
-        <Text className='ke-title'>{DEFAULT_ELDER_NAME}最近看过什么</Text>
+        <Text className='ke-title'>{elderName}最近看过什么</Text>
         <Text className='ke-subtitle'>
           这页会把最近看过的照片和视频整理出来，方便老人回看，也方便家属确认哪些内容更容易被接受。
         </Text>

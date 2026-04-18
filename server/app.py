@@ -2707,6 +2707,113 @@ def get_latest_mood():
     else:
         return jsonify({'record': None})
 
+def _weather_descriptor(code):
+    if code == 0:
+        return '☀️', '晴'
+    if code in (1, 2):
+        return '🌤️', '少云'
+    if code == 3:
+        return '☁️', '阴'
+    if code in (45, 48):
+        return '🌫️', '雾'
+    if code in (51, 53, 55, 56, 57):
+        return '🌦️', '毛毛雨'
+    if code in (61, 63, 65, 66, 67, 80, 81, 82):
+        return '🌧️', '雨'
+    if code in (71, 73, 75, 77, 85, 86):
+        return '❄️', '雪'
+    if code in (95, 96, 99):
+        return '⛈️', '雷雨'
+    return '🌤️', '天气'
+
+def _format_weather_payload(code=None, temperature=None, source='fallback'):
+    icon, label = _weather_descriptor(code)
+    temperature_text = ''
+    if temperature is not None:
+        try:
+            temperature_text = f" {round(float(temperature))}°C"
+        except (TypeError, ValueError):
+            temperature_text = ''
+
+    return {
+        'icon': icon,
+        'text': f"{label}{temperature_text}".strip() if source != 'fallback' else '天气待同步',
+        'source': source,
+        'weather_code': code,
+        'temperature': temperature
+    }
+
+def _get_latest_mood_weather(family_id, elderly_id=None):
+    conn = get_db()
+    cursor = conn.cursor()
+
+    conditions = ['family_id = ?', "weather IS NOT NULL", "weather != ''"]
+    params = [family_id]
+
+    if elderly_id:
+        conditions.append('elderly_id = ?')
+        params.append(elderly_id)
+
+    where_clause = ' AND '.join(conditions)
+    cursor.execute(f'''
+        SELECT weather FROM mood_records
+        WHERE {where_clause}
+        ORDER BY recorded_at DESC
+        LIMIT 1
+    ''', params)
+
+    row = cursor.fetchone()
+    conn.close()
+    return row['weather'] if row else None
+
+@app.route('/api/elderly/weather', methods=['GET'])
+def get_elderly_weather():
+    """老人端天气聚合：优先实时天气，失败时回退最近情绪记录天气"""
+    family_id = request.args.get('family_id')
+    elderly_id = request.args.get('elderly_id')
+    latitude = request.args.get('latitude')
+    longitude = request.args.get('longitude')
+
+    if not family_id:
+        return jsonify({'error': '缺少family_id参数'}), 400
+
+    if latitude and longitude:
+        try:
+            response = requests.get(
+                'https://api.open-meteo.com/v1/forecast',
+                params={
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'current': 'temperature_2m,weather_code',
+                    'timezone': 'auto'
+                },
+                timeout=5
+            )
+            response.raise_for_status()
+            current = response.json().get('current') or {}
+            weather = _format_weather_payload(
+                current.get('weather_code'),
+                current.get('temperature_2m'),
+                'geolocation'
+            )
+            return jsonify({'weather': weather})
+        except Exception as exc:
+            print(f"获取实时天气失败，回退到情绪记录天气: {exc}")
+
+    weather_text = _get_latest_mood_weather(family_id, elderly_id)
+    if weather_text:
+        return jsonify({
+            'weather': {
+                'icon': '🌤️',
+                'text': weather_text,
+                'source': 'mood',
+                'weather_code': None,
+                'temperature': None
+            }
+        })
+
+    return jsonify({'weather': _format_weather_payload(source='fallback')})
+
 # ==================== 家属端情绪记录 API ====================
 
 @app.route('/api/family/moods', methods=['GET'])
@@ -3028,6 +3135,50 @@ def get_today_schedules():
 
     return jsonify({'schedules': schedules})
 
+@app.route('/api/elderly/schedules/history', methods=['GET'])
+def get_schedule_history():
+    """鑾峰彇鑰佷汉绔巻鍙叉棩绋?"""
+    family_id = request.args.get('family_id')
+    limit = request.args.get('limit', 40, type=int)
+    if not family_id:
+        return jsonify({'error': '缂哄皯family_id鍙傛暟'}), 400
+
+    normalized_limit = max(1, min(limit or 40, 100))
+    now = get_beijing_time().replace(tzinfo=None)
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT * FROM schedules
+        WHERE family_id = ?
+        AND is_active = 1
+        ORDER BY schedule_time DESC
+    ''', (family_id,))
+
+    schedules = []
+    for row in cursor.fetchall():
+        item = dict(row)
+        schedule_time = parse_schedule_datetime(item.get('schedule_time'))
+        status = (item.get('status') or 'pending').lower()
+
+        include = status in ('completed', 'skipped', 'missed')
+        if not include and schedule_time:
+            include = schedule_time < now
+
+        if include:
+            schedules.append(item)
+            if len(schedules) >= normalized_limit:
+                break
+
+    schedules.sort(
+        key=lambda item: parse_schedule_datetime(item.get('schedule_time')) or datetime.min,
+        reverse=True
+    )
+    conn.close()
+
+    return jsonify({'schedules': schedules, 'limit': normalized_limit})
+
 @app.route('/api/elderly/schedules/upcoming', methods=['GET'])
 def get_upcoming_schedules():
     """获取即将到来的日程（下一小时内）"""
@@ -3263,6 +3414,37 @@ def create_consultation():
     conn.close()
 
     return jsonify({'success': True, 'consultation_id': consultation_id}), 201
+
+@app.route('/api/consultations/<int:consultation_id>', methods=['PUT'])
+def update_consultation(consultation_id):
+    """更新咨询/随访状态与备注"""
+    data = request.json or {}
+
+    update_fields = []
+    params = []
+
+    for field in ['consultation_type', 'scheduled_time', 'duration', 'status', 'note', 'counselor_id']:
+        if field in data:
+            update_fields.append(f'{field} = ?')
+            params.append(data[field])
+
+    if not update_fields:
+        return jsonify({'error': '没有可更新的字段'}), 400
+
+    update_fields.append('updated_at = CURRENT_TIMESTAMP')
+    params.append(consultation_id)
+
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute(f'''
+        UPDATE consultations
+        SET {', '.join(update_fields)}
+        WHERE id = ?
+    ''', params)
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True})
 
 # ==================== 媒体库 API ====================
 

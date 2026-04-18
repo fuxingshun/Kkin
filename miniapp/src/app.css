@@ -2684,6 +2684,23 @@ page {
   color: #ff9f4d;
 }
 
+.ef-pill--skipped {
+  background: #eef2ff;
+  color: #6366f1;
+}
+
+.ef-pill--missed {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.ef-history-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 12rpx;
+}
+
 .ef-small-primary,
 .ef-task-button {
   min-width: 112rpx;

@@ -3,7 +3,6 @@ import { Mic, Users, Image } from 'lucide-react';
 import { AvatarStage } from '../components/AvatarStage';
 import { MedicationCard } from '../components/MedicationCard';
 import { MoodBoard } from '../components/MoodBoard';
-import { MemoryPlayer } from '../components/MemoryPlayer';
 import { MediaPlayer } from '../components/MediaPlayer';
 import { EmergencySheet } from '../components/EmergencySheet';
 import { ScheduleList } from '../components/ScheduleList';
@@ -13,9 +12,9 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { TransparentMediaOverlay } from '../components/TransparentMediaOverlay';
 import { LogNotification } from '../components/LogNotification';
 import * as scheduleService from '../services/scheduleService';
-import * as mediaService from '../services/mediaService';
 import * as messageService from '../services/messageService';
 import * as alertService from '../services/alertService';
+import type { WeatherInfo } from '../services/weatherService';
 import * as moodService from '../../family/services/moodService';
 import { API_BASE_URL, FAY_HTTP_BASE_URL } from '../../config/runtime';
 
@@ -24,22 +23,26 @@ import { API_BASE_URL, FAY_HTTP_BASE_URL } from '../../config/runtime';
  * 优化为 9:16 竖屏使用（如平板竖屏）
  * 包含数字人、大按钮和各类卡片叠加层
  */
-export const HomePage: React.FC = () => {
+interface HomePageProps {
+  familyId: string;
+  elderlyId: number;
+  elderlyName?: string;
+  weather: WeatherInfo;
+}
+
+export const HomePage: React.FC<HomePageProps> = ({ familyId, elderlyId, elderlyName, weather }) => {
   const [activeOverlay, setActiveOverlay] = useState<
-    'none' | 'medication' | 'mood' | 'memory' | 'emergency' | 'schedule' | 'media'
+    'none' | 'medication' | 'mood' | 'emergency' | 'schedule' | 'media'
   >('none');
   const [isAvatarActive, setIsAvatarActive] = useState(false);
-  const [memoryMode, setMemoryMode] = useState<'pip' | 'fullscreen'>('fullscreen');
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'info' | 'calling'; message: string } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void } | null>(null);
-  const [currentMediaIndex, setCurrentMediaIndex] = useState(0);
   const [sdkStatus, setSDKStatus] = useState<'loading' | 'ready' | 'error' | 'config-missing'>('loading');
   const [wsStatus, setWSStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
   const [todaySchedules, setTodaySchedules] = useState<scheduleService.Schedule[]>([]);
   const [reminderSchedule, setReminderSchedule] = useState<scheduleService.Schedule | null>(null);
   const [shownReminders, setShownReminders] = useState<Set<number>>(new Set());
   const [postponedReminders, setPostponedReminders] = useState<Map<number, Date>>(new Map()); // 记录推迟的日程和推迟到的时间
-  const [recommendedMedia, setRecommendedMedia] = useState<mediaService.RecommendedMedia[]>([]);
   const [playedMessages, setPlayedMessages] = useState<Set<number>>(new Set()); // 记录已播报的留言ID
   const [mediaOverlay, setMediaOverlay] = useState<{
     filename: string;
@@ -50,12 +53,9 @@ export const HomePage: React.FC = () => {
   const [isMicrophoneEnabled, setIsMicrophoneEnabled] = useState<boolean>(true); // 麦克风状态
   const [currentMood, setCurrentMood] = useState<moodService.MoodType | null>(null); // 当前情绪
   const [logMessage, setLogMessage] = useState<string | null>(null); // WebSocket log消息
-  const [isIdle, setIsIdle] = useState<boolean>(false); // 是否处于空闲状态
   const isIdleRef = React.useRef<boolean>(false); // 用于在回调中检查空闲状态
   const [resetIdleTrigger, setResetIdleTrigger] = useState<number>(0); // 用于触发空闲计时器重置
   const [isAvatarVisible, setIsAvatarVisible] = useState<boolean>(true); // 数字人是否可见（不影响WebSocket连接）
-  const familyId = 'family_001'; // 实际使用时从用户上下文获取
-  const elderlyId = 1; // 老人用户ID，实际使用时从用户上下文获取
 
   // 轮询检查联系家人的alerts（与家属端相同的方案）
   useEffect(() => {
@@ -137,7 +137,7 @@ export const HomePage: React.FC = () => {
     // 每分钟刷新一次
     const interval = setInterval(loadTodaySchedules, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [familyId]);
 
   // 监听日程状态变化，自动关闭已完成/已忽略的弹窗
   useEffect(() => {
@@ -168,30 +168,17 @@ export const HomePage: React.FC = () => {
   // 初始化加载当前情绪
   useEffect(() => {
     loadCurrentMood();
-  }, []);
-
-  // 加载推荐媒体
-  const loadRecommendedMedia = async () => {
-      try {
-        const response = await mediaService.getRecommendedMedia(familyId, elderlyId);
-        setRecommendedMedia(response.media);
-        console.log('加载到推荐媒体:', response.media.length, '个');
-      } catch (error) {
-        console.error('加载推荐媒体失败:', error);
-      }
-    };
+  }, [familyId, elderlyId]);
 
   // 处理空闲状态变化
   const handleIdleStateChange = async (idle: boolean) => {
     console.log(`[HomePage] 空闲状态变化: ${idle ? '进入空闲' : '退出空闲'}`);
-    setIsIdle(idle);
     isIdleRef.current = idle; // 同步更新ref，供定时器回调使用
 
     if (idle) {
       // 进入空闲状态，隐藏数字人（但保持WebSocket连接）并打开媒体播放器界面
       console.log('[HomePage] 进入空闲模式，隐藏数字人，打开媒体播放器');
       setIsAvatarVisible(false);
-      await loadRecommendedMedia();
       setActiveOverlay('media');
     } else {
       // 退出空闲状态，显示数字人，关闭媒体播放器
@@ -203,19 +190,11 @@ export const HomePage: React.FC = () => {
     }
   };
 
-  // 当推荐媒体更新且处于空闲状态时，确保媒体播放器打开
-  useEffect(() => {
-    if (isIdle && recommendedMedia.length > 0 && activeOverlay !== 'media') {
-      setActiveOverlay('media');
-    }
-  }, [recommendedMedia, isIdle]);
-
   // 处理媒体播放器关闭（用户手动关闭）
   const handleMediaPlayerClose = () => {
     console.log('[HomePage] 用户手动关闭媒体播放器');
     setActiveOverlay('none');
     // 重置空闲状态，这样空闲检测会重新开始计时
-    setIsIdle(false);
     isIdleRef.current = false;
     // 显示数字人（不需要重新初始化，因为WebSocket一直保持连接）
     setIsAvatarVisible(true);
@@ -352,7 +331,7 @@ export const HomePage: React.FC = () => {
     checkAndPlayMessages(); // 立即执行一次
     const interval = setInterval(checkAndPlayMessages, 60000); // 每分钟检查
     return () => clearInterval(interval);
-  }, [playedMessages]);
+  }, [familyId, playedMessages]);
 
   // 轮询媒体展示事件（每5秒检查一次）
   const pollMediaEvents = async () => {
@@ -402,7 +381,7 @@ export const HomePage: React.FC = () => {
     pollMediaEvents(); // 立即执行一次
     const interval = setInterval(pollMediaEvents, 5000); // 每5秒检查
     return () => clearInterval(interval);
-  }, []);
+  }, [familyId]);
 
   // 确保麦克风已开启
   const ensureMicrophoneEnabled = async () => {
@@ -463,15 +442,6 @@ export const HomePage: React.FC = () => {
     }
   };
 
-  // 模拟媒体库数据
-  const mediaLibrary = [
-    { id: '1', url: '/placeholder-photo.jpg', type: 'photo' as const, caption: '小米 2018 秋游' },
-    { id: '2', url: '/placeholder-photo-2.jpg', type: 'photo' as const, caption: '2019 春节团聚' },
-    { id: '3', url: '/placeholder-photo-3.jpg', type: 'photo' as const, caption: '奶奶80岁生日' },
-    { id: '4', url: '/placeholder-photo-4.jpg', type: 'photo' as const, caption: '家庭野餐' },
-    { id: '5', url: '/placeholder-photo-5.jpg', type: 'photo' as const, caption: '小孙子周岁' },
-  ];
-
   // 获取当前时间和日期信息
   const now = new Date();
   const currentTime = now.toLocaleTimeString('zh-CN', {
@@ -485,9 +455,6 @@ export const HomePage: React.FC = () => {
   const currentDay = now.toLocaleDateString('zh-CN', {
     weekday: 'long',
   });
-  // 模拟天气信息（实际使用时应从天气API获取）
-  const weather = '晴 22°C';
-
   // 切换麦克风开关
   const handleMicClick = async () => {
     try {
@@ -536,26 +503,9 @@ export const HomePage: React.FC = () => {
     setActiveOverlay('emergency');
   };
 
-  const handlePhotosClick = async () => {
-    // 加载推荐媒体
-    await loadRecommendedMedia();
+  const handlePhotosClick = () => {
+    setIsAvatarVisible(false);
     setActiveOverlay('media');
-  };
-
-  const handleNextMedia = () => {
-    if (currentMediaIndex < mediaLibrary.length - 1) {
-      setCurrentMediaIndex(currentMediaIndex + 1);
-    }
-  };
-
-  const handlePreviousMedia = () => {
-    if (currentMediaIndex > 0) {
-      setCurrentMediaIndex(currentMediaIndex - 1);
-    }
-  };
-
-  const handleSelectMedia = (index: number) => {
-    setCurrentMediaIndex(index);
   };
 
   // 获取临近日程（前后30分钟内）
@@ -609,6 +559,7 @@ export const HomePage: React.FC = () => {
 
   const nextSchedule = getNextSchedule();
   const nearbyMedication = getNearbyMedicationReminder();
+  const activeMedicationSchedule = nearbyMedication;
 
   return (
     <div className="h-screen w-full relative elderly-mode overflow-hidden">
@@ -626,23 +577,6 @@ export const HomePage: React.FC = () => {
             resetIdleTrigger={resetIdleTrigger}
           />
         </div>
-
-      {/* PIP 模式的媒体播放器 */}
-      {activeOverlay === 'memory' && memoryMode === 'pip' && (
-        <MemoryPlayer
-          mediaType="photo"
-          mode="pip"
-          mediaList={mediaLibrary}
-          currentIndex={currentMediaIndex}
-          onLike={() => console.log('Liked')}
-          onDislike={() => console.log('Disliked')}
-          onClose={() => setActiveOverlay('none')}
-          onToggleMode={() => setMemoryMode('fullscreen')}
-          onNext={handleNextMedia}
-          onPrevious={handlePreviousMedia}
-          onSelectMedia={handleSelectMedia}
-        />
-      )}
 
       {/* 顶部状态栏 - 悬浮层 */}
       <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/40 to-transparent px-4 py-3">
@@ -677,7 +611,10 @@ export const HomePage: React.FC = () => {
               </div>
               <div className="flex items-center gap-2 text-sm drop-shadow-md">
                 <span>{currentDay}</span>
-                <span className="text-yellow-300">☀️ {weather}</span>
+                {elderlyName ? (
+                  <span className="text-white/80">{elderlyName}</span>
+                ) : null}
+                <span className="text-yellow-300">{weather.icon} {weather.text}</span>
               </div>
             </div>
           </div>
@@ -760,15 +697,44 @@ export const HomePage: React.FC = () => {
       {/* 叠加层 - 用药提醒 */}
       {activeOverlay === 'medication' && (
         <MedicationCard
-          medicationName="氯沙坦"
-          dosage="50mg"
-          timing="早餐后"
+          medicationName={activeMedicationSchedule?.title || '用药提醒'}
+          dosage={activeMedicationSchedule?.description || '请按医嘱服用'}
+          timing={
+            activeMedicationSchedule
+              ? scheduleService.formatTime(activeMedicationSchedule.schedule_time)
+              : '请按时服用'
+          }
           graceMinutes={30}
-          onTaken={() => {
-            setActiveOverlay('none');
-            setToastMessage({ type: 'success', message: '已记录服药' });
+          onTaken={async () => {
+            try {
+              if (activeMedicationSchedule?.id) {
+                await scheduleService.updateScheduleStatus(activeMedicationSchedule.id, 'completed');
+                await loadTodaySchedules();
+              }
+              setActiveOverlay('none');
+              setToastMessage({ type: 'success', message: '已记录服药' });
+            } catch (error) {
+              console.error('记录服药失败:', error);
+              setToastMessage({ type: 'info', message: '记录服药失败，请稍后重试' });
+            }
           }}
           onSnooze={(mins) => {
+            if (activeMedicationSchedule?.id) {
+              const postponedTime = new Date();
+              postponedTime.setMinutes(postponedTime.getMinutes() + mins);
+
+              setPostponedReminders(prev => {
+                const newMap = new Map(prev);
+                newMap.set(activeMedicationSchedule.id!, postponedTime);
+                return newMap;
+              });
+
+              setShownReminders(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(activeMedicationSchedule.id!);
+                return newSet;
+              });
+            }
             setActiveOverlay('none');
             setToastMessage({ type: 'info', message: `将在 ${mins} 分钟后再次提醒` });
           }}
@@ -776,14 +742,27 @@ export const HomePage: React.FC = () => {
             setActiveOverlay('none');
             setConfirmDialog({
               message: '跳过服药可能影响健康，确定吗？',
-              onConfirm: () => {
-                setConfirmDialog(null);
-                setToastMessage({ type: 'info', message: '已记录跳过' });
+              onConfirm: async () => {
+                try {
+                  if (activeMedicationSchedule?.id) {
+                    await scheduleService.updateScheduleStatus(activeMedicationSchedule.id, 'skipped');
+                    await loadTodaySchedules();
+                  }
+                  setConfirmDialog(null);
+                  setToastMessage({ type: 'info', message: '已记录跳过' });
+                } catch (error) {
+                  console.error('记录跳过服药失败:', error);
+                  setConfirmDialog(null);
+                  setToastMessage({ type: 'info', message: '记录跳过失败，请稍后重试' });
+                }
               }
             });
           }}
           onInfo={() => {
-            setToastMessage({ type: 'info', message: '氯沙坦用于降血压，请随餐服用，避免空腹。' });
+            setToastMessage({
+              type: 'info',
+              message: activeMedicationSchedule?.description || '请按家属设置的说明与医嘱服用。',
+            });
           }}
         />
       )}
@@ -793,31 +772,16 @@ export const HomePage: React.FC = () => {
         <MoodBoard
           familyId={familyId}
           elderlyId={elderlyId}
+          weather={weather.text}
           onMoodSelect={(mood) => {
             console.log('Selected mood:', mood);
             // 更新当前情绪显示
             setCurrentMood(mood as moodService.MoodType);
-            // 根据心情触发不同的回忆内容
-            setActiveOverlay('memory');
+            // 根据心情触发真实媒体推荐链路
+            setIsAvatarVisible(false);
+            setActiveOverlay('media');
           }}
           onClose={() => setActiveOverlay('none')}
-        />
-      )}
-
-      {/* 叠加层 - 媒体播放（全屏） */}
-      {activeOverlay === 'memory' && memoryMode === 'fullscreen' && (
-        <MemoryPlayer
-          mediaType="photo"
-          mode="fullscreen"
-          mediaList={mediaLibrary}
-          currentIndex={currentMediaIndex}
-          onLike={() => console.log('Liked')}
-          onDislike={() => console.log('Disliked')}
-          onClose={() => setActiveOverlay('none')}
-          onToggleMode={() => setMemoryMode('pip')}
-          onNext={handleNextMedia}
-          onPrevious={handlePreviousMedia}
-          onSelectMedia={handleSelectMedia}
         />
       )}
 
@@ -829,7 +793,7 @@ export const HomePage: React.FC = () => {
             setToastMessage({ type: 'calling', message: '正在呼叫家人...' });
             // 推送SOS紧急消息到家属端
             try {
-              await alertService.sendSOSAlert(familyId);
+              await alertService.sendSOSAlert(familyId, elderlyId);
               console.log('已发送SOS紧急通知给家人');
             } catch (error) {
               console.error('发送SOS紧急通知失败:', error);
@@ -837,10 +801,10 @@ export const HomePage: React.FC = () => {
           }}
           onContactEmergency={async () => {
             setActiveOverlay('none');
-            setToastMessage({ type: 'info', message: '暂未对接应急中心，已通知家人' });
+            setToastMessage({ type: 'calling', message: '已向家人发送 SOS，请立即拨打 120' });
             // 也推送SOS紧急消息到家属端
             try {
-              await alertService.sendSOSAlert(familyId);
+              await alertService.sendSOSAlert(familyId, elderlyId);
               console.log('已发送SOS紧急通知给家人');
             } catch (error) {
               console.error('发送SOS紧急通知失败:', error);
@@ -851,10 +815,11 @@ export const HomePage: React.FC = () => {
       )}
 
       {/* 叠加层 - 智能媒体播放器 */}
-      {activeOverlay === 'media' && recommendedMedia.length > 0 && (
+      {activeOverlay === 'media' && (
         <MediaPlayer
           familyId={familyId}
           elderlyId={elderlyId}
+          currentMood={currentMood || undefined}
           onClose={handleMediaPlayerClose}
         />
       )}

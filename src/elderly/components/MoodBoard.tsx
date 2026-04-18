@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Smile, Meh, Frown, Zap, Angry, Battery } from 'lucide-react';
 import * as moodService from '../services/moodService';
+import { DEFAULT_FAMILY_ID } from '../../config/runtime';
 
 interface MoodBoardProps {
   familyId?: string;
   elderlyId?: number;
+  weather?: string;
   onMoodSelect?: (mood: moodService.MoodType) => void;
   onClose?: () => void;
 }
@@ -14,8 +16,9 @@ interface MoodBoardProps {
  * 用于情绪记录和触发回忆疗法
  */
 export const MoodBoard: React.FC<MoodBoardProps> = ({
-  familyId = 'family_001',
+  familyId = DEFAULT_FAMILY_ID,
   elderlyId,
+  weather,
   onMoodSelect,
   onClose
 }) => {
@@ -79,6 +82,7 @@ export const MoodBoard: React.FC<MoodBoardProps> = ({
       await moodService.createMoodRecord(familyId, moodId, {
         elderlyId,
         source: 'manual',
+        weather,
       });
       console.log('情绪记录已保存:', moodId);
 

@@ -1,8 +1,8 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Image, Text, Video, View } from '@tarojs/components';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
-import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
+import { speakWithAvatar } from '@/services/avatar';
 import {
   getMediaUrl,
   getRecommendedMedia,
@@ -12,26 +12,51 @@ import {
   type RecommendedMedia,
 } from '@/services/elderly';
 import { formatRelativeTime } from '@/utils/format';
+import { getElderlySession } from '@/utils/session';
 
 export default function ElderlyMemoriesPage() {
+  const { familyId, elderlyId } = getElderlySession();
   const [mediaList, setMediaList] = useState<RecommendedMedia[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState('全部回忆');
   const [feedbackById, setFeedbackById] = useState<Record<number, 'like' | 'dislike'>>({});
+  const [narrating, setNarrating] = useState(false);
+  const audioContextRef = useRef<Taro.InnerAudioContext | null>(null);
+
+  useEffect(() => {
+    const audioContext = Taro.createInnerAudioContext();
+    audioContext.autoplay = false;
+    audioContext.obeyMuteSwitch = false;
+    audioContext.onEnded(() => {
+      setNarrating(false);
+    });
+    audioContext.onStop(() => {
+      setNarrating(false);
+    });
+    audioContext.onError(() => {
+      setNarrating(false);
+    });
+    audioContextRef.current = audioContext;
+
+    return () => {
+      audioContext.destroy();
+      audioContextRef.current = null;
+    };
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
-      const list = await getRecommendedMedia(DEFAULT_FAMILY_ID, DEFAULT_ELDERLY_ID);
+      const list = await getRecommendedMedia(familyId, elderlyId);
       setMediaList(list);
       setCurrentIndex((index) => (list[index] ? index : 0));
       if (list[0]) {
-        await recordMediaPlay(list[0].id, DEFAULT_ELDERLY_ID);
+        await recordMediaPlay(list[0].id, elderlyId);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载失败';
       Taro.showToast({ title: message, icon: 'none' });
     }
-  }, []);
+  }, [elderlyId, familyId]);
 
   useDidShow(() => {
     void loadData();
@@ -67,7 +92,7 @@ export default function ElderlyMemoriesPage() {
     if (!next) return;
     setCurrentIndex(nextIndex);
     try {
-      await recordMediaPlay(next.id, DEFAULT_ELDERLY_ID);
+      await recordMediaPlay(next.id, elderlyId);
     } catch {
       // 播放记录失败不打断老人查看内容。
     }
@@ -76,11 +101,51 @@ export default function ElderlyMemoriesPage() {
   async function handleLike() {
     if (!currentMemory) return;
     try {
-      await submitMediaFeedback(currentMemory.id, 'like', DEFAULT_ELDERLY_ID);
+      await submitMediaFeedback(currentMemory.id, 'like', elderlyId);
       setFeedbackById((prev) => ({ ...prev, [currentMemory.id]: 'like' }));
       Taro.showToast({ title: '已记下喜欢', icon: 'success' });
     } catch (error) {
       const message = error instanceof Error ? error.message : '提交失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    }
+  }
+
+  async function handleNarrate() {
+    if (!currentMemory || narrating) {
+      return;
+    }
+
+    const narrationText = [
+      `${currentMemory.title}。`,
+      currentMemory.description || '',
+      currentMemory.tags?.length ? `这是关于${currentMemory.tags.slice(0, 3).join('、')}的回忆。` : '',
+      '我陪您慢慢看看。'
+    ]
+      .filter(Boolean)
+      .join('');
+
+    try {
+      setNarrating(true);
+      const result = await speakWithAvatar(narrationText);
+
+      if (result.audioError) {
+        throw new Error(result.audioError);
+      }
+
+      if (!result.audioUrl) {
+        throw new Error('暂时没有生成可播放的讲述音频');
+      }
+
+      const audioContext = audioContextRef.current;
+      if (!audioContext) {
+        throw new Error('语音播放器初始化失败');
+      }
+
+      audioContext.src = result.audioUrl;
+      audioContext.play();
+    } catch (error) {
+      setNarrating(false);
+      const message = error instanceof Error ? error.message : '语音讲述失败';
       Taro.showToast({ title: message, icon: 'none' });
     }
   }
@@ -149,7 +214,9 @@ export default function ElderlyMemoriesPage() {
         </View>
         <View className='ef-two-actions'>
           <Button className='ef-blue-button' onClick={() => switchToIndex((currentIndex + 1) % Math.max(filteredList.length, 1))}>自动播放</Button>
-          <Button className='ef-soft-button' onClick={() => Taro.showToast({ title: '已同步播放记录', icon: 'none' })}>语音讲述</Button>
+          <Button className='ef-soft-button' loading={narrating} disabled={!currentMemory || narrating} onClick={() => void handleNarrate()}>
+            {narrating ? '讲述中...' : '语音讲述'}
+          </Button>
         </View>
       </View>
 
