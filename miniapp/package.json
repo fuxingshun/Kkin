@@ -1,0 +1,30 @@
+{
+  "name": "kinecho-miniapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KinEcho 微信小程序端，包含家属照护端与老人陪伴端。",
+  "scripts": {
+    "dev:weapp": "node scripts/dev-weapp.js",
+    "build:weapp": "taro build --type weapp && node scripts/ensure-weapp-page-wxss.js && node scripts/patch-weapp-runtime-global.js"
+  },
+  "dependencies": {
+    "@tarojs/components": "^4.1.11",
+    "@tarojs/react": "^4.1.11",
+    "@tarojs/runtime": "^4.1.11",
+    "@tarojs/taro": "^4.1.11",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@babel/preset-react": "^7.28.5",
+    "@babel/preset-typescript": "^7.28.5",
+    "@tarojs/cli": "^4.1.11",
+    "@tarojs/plugin-framework-react": "^4.1.11",
+    "@tarojs/plugin-platform-weapp": "^4.1.11",
+    "@tarojs/webpack5-runner": "^4.1.11",
+    "@types/node": "^22.15.3",
+    "@types/react": "^18.3.23",
+    "babel-preset-taro": "^4.1.11",
+    "typescript": "^5.8.3"
+  }
+}
