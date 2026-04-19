@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: kinecho-server
+  profiles:
+    default: local
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.kinecho.server.entity
+  global-config:
+    db-config:
+      id-type: auto
+
+kinecho:
+  zone-id: Asia/Shanghai
+  project-root: .
+  server-dir: server
+  upload-dir: server/uploads
+  ai-audio-dir: server/uploads/ai-audio
+  ai-voice-upload-dir: server/uploads/ai-voice
+  seed-demo-data: true
+  ai-chat-provider: bailian
+  ai-audio-retention-count: 32
+
+  redis-enabled: false
+  redis-host: 127.0.0.1
+  redis-port: 6379
+  redis-password: ''
+  redis-database: 0
+  redis-default-ttl-seconds: 300
+
+  bailian-api-base-url: https://dashscope.aliyuncs.com/api/v1
+  bailian-compatible-base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+  bailian-system-prompt: '你是 KinEcho 的温和中文陪伴助手。请简短、自然、可靠地回应老人，避免诊断医疗问题，必要时提醒联系家属或专业人员。'
+
+  bailian-asr-model: paraformer-v2
+  bailian-asr-language-hints:
+    - zh
+    - en
+  bailian-asr-file-base-url: ''
+  bailian-asr-timeout-seconds: 90
+  bailian-asr-poll-interval-millis: 800
+
+  bailian-chat-model: qwen3.5-plus
+  bailian-chat-temperature: 0.8
+  bailian-chat-max-tokens: 500
+  bailian-chat-timeout-seconds: 45
+
+  bailian-tts-model: qwen3-tts-flash
+  bailian-tts-voice: Serena
+  bailian-tts-language-type: Chinese
+  bailian-tts-file-extension: wav
+  bailian-tts-timeout-seconds: 60

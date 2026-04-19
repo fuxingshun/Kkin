@@ -14,7 +14,13 @@ const taroBin = path.join(
 let lastCreated = -1;
 let lastRuntimePatchState = '';
 
-const watcher = spawn(taroBin, ['build', '--type', 'weapp', '--watch'], {
+const taroArgs = ['build', '--type', 'weapp', '--watch'];
+const watcherCommand = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : taroBin;
+const watcherArgs = process.platform === 'win32'
+  ? ['/d', '/s', '/c', taroBin, ...taroArgs]
+  : taroArgs;
+
+const watcher = spawn(watcherCommand, watcherArgs, {
   cwd: projectRoot,
   stdio: 'inherit',
   shell: false,

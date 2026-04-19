@@ -21,8 +21,6 @@ export default defineAppConfig({
     'pages/elderly/help/index',
     'pages/elderly/counseling/index',
     'pages/elderly/profile/index',
-    'pages/elderly/avatar/index',
-    'pages/elderly/avatar-stage/index',
     'pages/elderly/media/index',
     'pages/elderly/media-history/index',
     'pages/service/workspace/index',

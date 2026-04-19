@@ -2,25 +2,42 @@
 
 ```text
 Kin/
-├─ apps/web/                 # Vite 多页面 HTML 入口
-├─ config/                   # Vite 构建配置
-├─ docs/                     # 项目说明、原型、数据库文档和 README 图片资源
-├─ mcp_server/elderly_mcp/   # 老人端 MCP 服务
-├─ miniapp/                  # Taro/微信小程序端
+├─ apps/web/                 # 后台监控页 HTML 入口
+├─ config/                   # 后台监控页 Vite 配置
+├─ docs/                     # 项目说明和业务文档
+├─ miniapp/                  # Taro/微信小程序端，包含老人、家属、服务人员三端
 ├─ scripts/                  # 本地启动和停止脚本
-├─ server/                   # Flask 后端、本地数据库和上传目录
-└─ src/                      # Web 前端源码
+├─ server-java/              # Java/Spring Boot 后端
+├─ src/admin/                # 后台监控数据 Web 端
+└─ src/index.css             # 后台监控页共享样式
 ```
 
-根目录只保留包管理、TypeScript/Tailwind/PostCSS 等项目级配置，以及 README、LICENSE、环境变量示例这类入口文件。
+当前保留的运行面只有：
 
-运行脚本：
+- 小程序端：`miniapp`
+- Java 后端：`server-java`
+- 后台监控页：`src/admin`
+
+Java 后端分层：
+
+- `controller`：接口路由和请求参数
+- `service`：业务逻辑
+- `mapper`：MyBatis-Plus mapper 和数据库访问
+- `entity`：数据库实体
+
+旧的老人/家属 H5、外部语音服务、MCP 服务和渲染页面已经移除。
+
+常用命令：
 
 ```bash
-npm run dev:elderly:web
-npm run dev:family
+npm run server:build
+npm run server:start
 npm run dev:admin
-npm run start:all
+npm run build:admin
 ```
 
-构建产物、依赖目录、本地日志、虚拟环境、本地数据库和上传文件都由 `.gitignore` 保护，不进入版本库。
+小程序构建在 `miniapp` 目录内运行：
+
+```bash
+npm run build:weapp
+```

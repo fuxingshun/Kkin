@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Image, Text, Video, View } from '@tarojs/components';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
-import { speakWithAvatar } from '@/services/avatar';
+import { speakWithAi } from '@/services/aiCompanion';
 import {
   getMediaUrl,
   getRecommendedMedia,
@@ -126,7 +126,7 @@ export default function ElderlyMemoriesPage() {
 
     try {
       setNarrating(true);
-      const result = await speakWithAvatar(narrationText);
+      const result = await speakWithAi(narrationText);
 
       if (result.audioError) {
         throw new Error(result.audioError);

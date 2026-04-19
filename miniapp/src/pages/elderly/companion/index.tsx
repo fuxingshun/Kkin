@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Taro, { useDidHide, useDidShow } from '@tarojs/taro';
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components';
-import { chatWithAvatar, voiceChatWithAvatar } from '@/services/avatar';
-import { getAvatarInteractions, type AvatarInteraction } from '@/services/elderly';
+import { chatWithAi, voiceChatWithAi } from '@/services/aiCompanion';
+import { getAiInteractions, type AiInteraction } from '@/services/elderly';
 
 type RecorderStopResult = {
   tempFilePath?: string;
@@ -12,11 +12,11 @@ type RecorderStopResult = {
 
 const quickTopics = ['我有点难过', '想聊聊天', '想联系家人', '讲讲过去的事', '想听安慰', '睡不着觉'];
 
-const defaultMessages: AvatarInteraction[] = [
+const defaultMessages: AiInteraction[] = [
   {
     id: 1,
     username: '小心',
-    type: 'fay',
+    type: 'ai',
     content: '张阿姨，您好！我是您的AI陪伴助手小心。今天感觉怎么样？',
     createtime: Date.now() - 8 * 60 * 1000,
   },
@@ -30,7 +30,7 @@ const defaultMessages: AvatarInteraction[] = [
   {
     id: 3,
     username: '小心',
-    type: 'fay',
+    type: 'ai',
     content: '那真是太好了！天气好的时候，可以到阳台晒晒太阳，对身体很好。您今天有什么想聊的吗？',
     createtime: Date.now() - 6 * 60 * 1000,
   },
@@ -53,7 +53,7 @@ function formatMessageTime(value?: number | string) {
   });
 }
 
-function getMessageTimestamp(item: AvatarInteraction) {
+function getMessageTimestamp(item: AiInteraction) {
   const value = item.createtime;
   if (!value) {
     return 0;
@@ -67,7 +67,7 @@ function getMessageTimestamp(item: AvatarInteraction) {
   return timestamp > 1e12 ? timestamp : timestamp * 1000;
 }
 
-function sortMessagesByTime(items: AvatarInteraction[]) {
+function sortMessagesByTime(items: AiInteraction[]) {
   return items
     .slice()
     .sort((left, right) => {
@@ -83,7 +83,7 @@ function sortMessagesByTime(items: AvatarInteraction[]) {
 export default function ElderlyCompanionPage() {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [messages, setMessages] = useState<AvatarInteraction[]>([]);
+  const [messages, setMessages] = useState<AiInteraction[]>([]);
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [showQuickTopics, setShowQuickTopics] = useState(true);
@@ -168,7 +168,7 @@ export default function ElderlyCompanionPage() {
 
   const loadHistory = useCallback(async () => {
     try {
-      const history = await getAvatarInteractions(30);
+      const history = await getAiInteractions(30);
       setMessages(sortMessagesByTime(history));
     } catch (error) {
       const message = error instanceof Error ? error.message : '对话加载失败';
@@ -203,7 +203,7 @@ export default function ElderlyCompanionPage() {
     scrollToLatestMessage,
   ]);
 
-  const appendMessage = useCallback((message: AvatarInteraction) => {
+  const appendMessage = useCallback((message: AiInteraction) => {
     setMessages((prev) => sortMessagesByTime([...prev, message]));
   }, []);
 
@@ -222,12 +222,12 @@ export default function ElderlyCompanionPage() {
         createtime: Date.now(),
       });
 
-      const result = await chatWithAvatar(content);
+      const result = await chatWithAi(content);
       if (result.reply) {
         appendMessage({
           id: Date.now() + 1,
           username: '小心',
-          type: 'fay',
+          type: 'ai',
           content: result.reply,
           createtime: Date.now(),
         });
@@ -267,7 +267,7 @@ export default function ElderlyCompanionPage() {
       setSending(true);
       Taro.showLoading({ title: '正在识别' });
 
-      const result = await voiceChatWithAvatar(filePath);
+      const result = await voiceChatWithAi(filePath);
       Taro.hideLoading();
 
       if (result.transcript) {
@@ -284,7 +284,7 @@ export default function ElderlyCompanionPage() {
         appendMessage({
           id: Date.now() + 1,
           username: '小心',
-          type: 'fay',
+          type: 'ai',
           content: result.reply,
           createtime: Date.now(),
         });

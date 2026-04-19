@@ -64,7 +64,7 @@ export default function ElderlyProfilePage() {
       {
         title: '陪伴设置',
         items: [
-          { icon: '心', label: '数字人设置', value: '小心 · 温柔陪伴' },
+          { icon: '心', label: 'AI 陪伴设置', value: '小心 · 温柔陪伴' },
           { icon: '电', label: '求助联系人', value: familyMembers[0]?.name || '待绑定' },
         ],
       },

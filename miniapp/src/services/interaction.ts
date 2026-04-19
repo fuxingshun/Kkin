@@ -4,7 +4,7 @@ import { buildQueryString, request } from '@/utils/request';
 export interface InteractionMessage {
   username: string;
   is_adopted: number;
-  type: 'fay' | 'member';
+  type: 'ai' | 'member';
   way: string;
   content: string;
   createtime: number;

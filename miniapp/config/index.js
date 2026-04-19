@@ -24,9 +24,6 @@ const config = {
   },
   defineConstants: {
     __API_BASE_URL__: JSON.stringify(process.env.TARO_APP_API_BASE_URL || 'http://127.0.0.1:8000/api'),
-    __DIGITAL_HUMAN_WEB_URL__: JSON.stringify(
-      process.env.TARO_APP_DIGITAL_HUMAN_WEB_URL || 'http://localhost:3000/apps/web/elderly-avatar.html'
-    ),
   },
   copy: {
     patterns: [],

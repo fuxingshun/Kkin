@@ -2,30 +2,29 @@
   "name": "kinecho",
   "version": "2.0.0",
   "description": "KinEcho - 亲情回声：智能老人陪伴系统",
-  "main": "electron/main.js",
   "scripts": {
-    "dev:elderly": "concurrently \"vite --config config/vite.config.elderly.ts\" \"wait-on http://localhost:3000/apps/web/elderly.html && electron .\"",
-    "dev:elderly:web": "vite --config config/vite.config.elderly.ts --host 0.0.0.0",
-    "dev:family": "vite --config config/vite.config.family.ts",
-    "dev:admin": "vite --config config/vite.config.admin.ts",
-    "build:elderly": "tsc && vite build --config config/vite.config.elderly.ts",
-    "build:family": "tsc && vite build --config config/vite.config.family.ts",
+    "dev:admin": "vite --config config/vite.config.admin.ts --host 0.0.0.0",
     "build:admin": "tsc && vite build --config config/vite.config.admin.ts",
-    "build:electron": "npm run build:elderly && electron-builder",
-    "electron": "electron .",
-    "preview": "vite preview",
+    "preview:admin": "vite preview --config config/vite.config.admin.ts --host 0.0.0.0 --port 3002",
+    "server:build": "mvn -q -DskipTests package -f server-java/pom.xml",
+    "server:start": "java -jar server-java/target/kinecho-server.jar",
+    "server:dev": "mvn spring-boot:run -f server-java/pom.xml",
     "start:all": "scripts/start-all.cmd",
     "stop:all": "scripts/stop-all.cmd"
   },
-  "keywords": ["elderly-care", "digital-avatar", "family", "electron"],
+  "keywords": [
+    "elderly-care",
+    "ai-companion",
+    "family",
+    "mini-program"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0",
-    "recharts": "^2.10.0",
-    "lucide-react": "^0.294.0"
+    "recharts": "^2.10.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",
@@ -35,40 +34,6 @@
     "postcss": "^8.4.32",
     "tailwindcss": "^3.3.6",
     "typescript": "^5.3.3",
-    "vite": "^5.0.8",
-    "electron": "^28.0.0",
-    "electron-builder": "^24.9.1",
-    "concurrently": "^8.2.2",
-    "wait-on": "^7.2.0"
-  },
-  "build": {
-    "appId": "com.kinecho.app",
-    "productName": "KinEcho",
-    "directories": {
-      "output": "dist-electron"
-    },
-    "files": [
-      "electron/**/*",
-      {
-        "from": "dist/elderly",
-        "to": ".",
-        "filter": ["**/*"]
-      }
-    ],
-    "extraMetadata": {
-      "main": "electron/main.js"
-    },
-    "win": {
-      "target": ["nsis"],
-      "icon": "build/icon.ico"
-    },
-    "mac": {
-      "target": ["dmg"],
-      "icon": "build/icon.icns"
-    },
-    "linux": {
-      "target": ["AppImage"],
-      "icon": "build/icon.png"
-    }
+    "vite": "^5.0.8"
   }
 }

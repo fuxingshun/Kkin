@@ -19,14 +19,14 @@ function getSpeakerMeta(type: InteractionMessage['type']) {
   if (type === 'member') {
     return {
       title: '老人发言',
-      caption: '主动表达或回应数字人',
+      caption: '主动表达或回应 AI',
       background: 'linear-gradient(135deg, rgba(217, 107, 59, 0.12), rgba(255, 251, 247, 0.95))',
     };
   }
 
   return {
-    title: '数字人回复',
-    caption: '由 Fay 服务返回的对话内容',
+    title: 'AI 回复',
+    caption: '由 AI 陪伴服务返回的对话内容',
     background: 'linear-gradient(135deg, rgba(120, 147, 109, 0.10), rgba(255, 251, 247, 0.96))',
   };
 }
@@ -42,7 +42,7 @@ export default function FamilyInteractionsPage() {
       setErrorMessage('');
       const result = await getInteractionHistory(DEFAULT_CHAT_USERNAME, 100);
       setMessages(result.list);
-      setErrorMessage(result.available ? '' : result.error || 'Fay 服务暂不可用');
+      setErrorMessage(result.available ? '' : result.error || 'AI 陪伴服务暂不可用');
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载失败';
       setErrorMessage(message);
@@ -64,36 +64,36 @@ export default function FamilyInteractionsPage() {
   const visibleMessages = messages.filter((item) => Boolean(sanitizeInteractionContent(item.content)));
   const groupedMessages = Object.entries(groupMessagesByDate(visibleMessages));
   const memberCount = visibleMessages.filter((item) => item.type === 'member').length;
-  const fayCount = visibleMessages.filter((item) => item.type === 'fay').length;
+  const aiCount = visibleMessages.filter((item) => item.type === 'ai').length;
   const todayCount = countTodayMemberMessages(visibleMessages);
 
   return (
     <View className='ke-page'>
       <View className='ke-hero'>
         <Text className='ke-eyebrow'>Interaction History</Text>
-        <Text className='ke-title'>把老人和数字人的对话，整理成可回看的陪伴日志</Text>
+        <Text className='ke-title'>把老人和 AI 的对话，整理成可回看的陪伴日志</Text>
         <Text className='ke-subtitle'>
           小程序版先保留最实用的记录查看能力，方便家属判断今天聊得多不多、聊了些什么，后续再补筛选和搜索。
         </Text>
         <View className='ke-chip-row' style={{ marginTop: '22rpx' }}>
           <Text className='ke-chip ke-chip--warm'>今日发言 {todayCount}</Text>
           <Text className='ke-chip'>总消息 {visibleMessages.length}</Text>
-          <Text className='ke-chip'>{errorMessage ? '连接待检查' : 'Fay 已连通'}</Text>
+          <Text className='ke-chip'>{errorMessage ? '连接待检查' : 'AI 已连通'}</Text>
         </View>
       </View>
 
       <View className='ke-section ke-grid-2'>
         <StatCard label='今日互动' value={String(todayCount)} hint='只统计老人主动发言' />
         <StatCard label='老人发言' value={String(memberCount)} hint='当前已拉取消息中的数量' />
-        <StatCard label='数字人回复' value={String(fayCount)} hint='用于观察回应频率' />
+        <StatCard label='AI 回复' value={String(aiCount)} hint='用于观察回应频率' />
         <StatCard label='最近拉取' value={String(visibleMessages.length)} hint='默认最近 100 条' />
       </View>
 
       {errorMessage ? (
-        <SectionCard title='连接状态' caption='互动历史依赖 Fay 服务'>
+        <SectionCard title='连接状态' caption='互动历史依赖 Java 后端的 AI 陪伴服务'>
           <EmptyState
             title='暂时还拿不到互动记录'
-            hint='请确认 server/app.py 正在运行，并且服务端配置的 FAY_HTTP_BASE_URL 可以访问到 Fay。'
+            hint='请确认 server-java 后端正在运行，并已配置 AI 对话和语音服务所需的密钥。'
           />
         </SectionCard>
       ) : null}
@@ -148,7 +148,7 @@ export default function FamilyInteractionsPage() {
             ))}
           </View>
         ) : (
-          <EmptyState title='还没有互动记录' hint='等老人开始和数字人对话后，这里会自动汇总成可回看的日志。' />
+          <EmptyState title='还没有互动记录' hint='等老人开始和 AI 对话后，这里会自动汇总成可回看的日志。' />
         )}
       </SectionCard>
 

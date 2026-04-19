@@ -1,29 +1,79 @@
-# Dependencies
+# Dependencies and package manager caches
 node_modules/
-miniapp/node_modules/
+**/node_modules/
 .pnp
 .pnp.*
+.npm/
+.pnpm-store/
 
-# Build outputs
+# Yarn Berry: keep install metadata, ignore local caches
+.yarn/*
+!.yarn/patches/
+!.yarn/plugins/
+!.yarn/releases/
+!.yarn/sdks/
+!.yarn/versions/
+
+# Build outputs and framework caches
 dist/
 dist-*/
-dist-electron/
+**/dist/
 build/
 out/
 release/
-miniapp/dist/
-miniapp/.swc/
+coverage/
+.nyc_output/
+.vite/
+**/.vite/
+.turbo/
+.cache/
+.temp/
+.tmp/
+**/.swc/
 
-# Local environment files
+# Java / Maven / Spring Boot
+target/
+**/target/
+.mvn/timing.properties
+hs_err_pid*
+replay_pid*
+
+# Local Spring profile files that may contain database passwords or API keys
+server-java/src/main/resources/application-local.yml
+server-java/src/main/resources/application-local.yaml
+server-java/src/main/resources/application-prod.yml
+server-java/src/main/resources/application-prod.yaml
+server-java/src/main/resources/application-*.local.yml
+server-java/src/main/resources/application-*.local.yaml
+!server-java/src/main/resources/application.yml
+!server-java/src/main/resources/application.example.yml
+!server-java/src/main/resources/application-*.example.yml
+
+# Environment files and secrets
 .env
-.env.local
-.env.*.local
-server/.env
-miniapp/.env
+.env.*
 !.env.example
 !.env.local.example
+server/.env
+miniapp/.env
 !server/.env.example
 !miniapp/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Runtime uploads, generated media, and local databases
+uploads/
+**/uploads/
+server/uploads/
+server-java/uploads/
+server-java/server/uploads/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
 
 # Logs and process files
 .logs/
@@ -36,8 +86,9 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Python caches, virtual envs, and vendored installs
+# Python caches, virtual environments, and vendored installs
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
@@ -50,12 +101,10 @@ server/.venv/
 server/.vendor/
 server/.tmp/
 
-# Runtime data
-*.db
-*.db-*
-*.sqlite
-*.sqlite3
-server/uploads/
+# WeChat / Taro local developer files
+miniapp/project.private.config.json
+miniapp/.swc/
+miniapp/dist/
 
 # External checkouts and local SDKs
 .external/
@@ -65,29 +114,24 @@ server/uploads/
 *.backup
 *.tmp
 *.temp
-.cache/
-.temp/
-.tmp/
+*.orig
 
-# Editor directories and files
+# IDE and editor files
 .vscode/*
 !.vscode/extensions.json
 .idea/
 miniapp/.idea/
+*.iml
+.classpath
+.project
+.settings/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 
-# WeChat/Taro private project settings
-miniapp/project.private.config.json
-
 # OS files
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# Testing
-coverage/
-.nyc_output/

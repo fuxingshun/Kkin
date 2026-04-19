@@ -92,10 +92,10 @@ export interface Consultation {
   created_at?: string;
 }
 
-export interface AvatarInteraction {
+export interface AiInteraction {
   id: number;
   username: string;
-  type: 'member' | 'fay' | string;
+  type: 'member' | 'ai' | string;
   way?: string;
   content: string;
   createtime?: number;
@@ -423,12 +423,12 @@ export async function updateConsultation(
   return data.success;
 }
 
-export async function getAvatarInteractions(limit = 30) {
+export async function getAiInteractions(limit = 30) {
   const params = buildQueryString({
     username: 'User',
     limit: String(limit),
   });
 
-  const data = await request<{ list: AvatarInteraction[] }>(`/family/interactions?${params}`);
+  const data = await request<{ list: AiInteraction[] }>(`/family/interactions?${params}`);
   return data.list || [];
 }

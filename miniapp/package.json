@@ -2,7 +2,7 @@
   "name": "kinecho-miniapp",
   "version": "1.0.0",
   "private": true,
-  "description": "KinEcho 微信小程序端，包含家属照护端与老人陪伴端。",
+  "description": "KinEcho 微信小程序端，包含老人、家属、服务人员三端。",
   "scripts": {
     "dev:weapp": "node scripts/dev-weapp.js",
     "build:weapp": "taro build --type weapp && node scripts/ensure-weapp-page-wxss.js && node scripts/patch-weapp-runtime-global.js"
