@@ -20,6 +20,7 @@ import {
 } from '@/services/family';
 import { countTodayMemberMessages, getInteractionHistory, sanitizeInteractionContent } from '@/services/interaction';
 import { formatDateTimeText, formatRelativeTime } from '@/utils/format';
+import { useNavigationMetrics } from '@/utils/navigation';
 
 const quickActions = [
   { label: '情绪历史', path: '/pages/family/moods/index', tone: 'indigo' },
@@ -104,6 +105,7 @@ function summarizeScheduleProgress(list: Schedule[]) {
 }
 
 export default function FamilyDashboardPage() {
+  const navigation = useNavigationMetrics();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<FamilyUser[]>([]);
   const [messages, setMessages] = useState<FamilyMessage[]>([]);
@@ -119,29 +121,76 @@ export default function FamilyDashboardPage() {
     try {
       setLoading(true);
 
-      const [nextUsers, nextMessages, nextSchedules, nextMoods, nextMoodStats, nextAlertStats, nextRecentPlays, interactionResult] =
-        await Promise.all([
-          getFamilyUsers(),
-          getFamilyMessages(),
-          getFamilySchedules(),
-          queryFamilyMoodRecords(undefined, { limit: 10 }),
-          getMoodStats(undefined, 7),
-          getAlertStats(),
-          getRecentPlays(undefined, 5),
-          getInteractionHistory(undefined, 60),
-        ]);
+      const results = await Promise.allSettled([
+        getFamilyUsers(),
+        getFamilyMessages(),
+        getFamilySchedules(),
+        queryFamilyMoodRecords(undefined, { limit: 10 }),
+        getMoodStats(undefined, 7),
+        getAlertStats(),
+        getRecentPlays(undefined, 5),
+        getInteractionHistory(undefined, 60),
+      ]);
 
-      setUsers(nextUsers);
-      setMessages(nextMessages);
-      setSchedules(nextSchedules);
-      setMoods(nextMoods);
-      setMoodStats(nextMoodStats);
-      setAlertStats(nextAlertStats);
-      setRecentPlays(nextRecentPlays);
-      setTodayInteractionCount(countTodayMemberMessages(interactionResult.list));
+      const [usersResult, messagesResult, schedulesResult, moodsResult, moodStatsResult, alertStatsResult, recentPlaysResult, interactionResult] =
+        results;
+      let hasFailed = false;
 
-      const latestItem = interactionResult.list.find((item) => Boolean(sanitizeInteractionContent(item.content)));
-      setLatestInteraction(latestItem ? sanitizeInteractionContent(latestItem.content) : '');
+      if (usersResult.status === 'fulfilled') {
+        setUsers(usersResult.value);
+      } else {
+        hasFailed = true;
+      }
+
+      if (messagesResult.status === 'fulfilled') {
+        setMessages(messagesResult.value);
+      } else {
+        hasFailed = true;
+      }
+
+      if (schedulesResult.status === 'fulfilled') {
+        setSchedules(schedulesResult.value);
+      } else {
+        hasFailed = true;
+      }
+
+      if (moodsResult.status === 'fulfilled') {
+        setMoods(moodsResult.value);
+      } else {
+        hasFailed = true;
+      }
+
+      if (moodStatsResult.status === 'fulfilled') {
+        setMoodStats(moodStatsResult.value);
+      } else {
+        hasFailed = true;
+      }
+
+      if (alertStatsResult.status === 'fulfilled') {
+        setAlertStats(alertStatsResult.value);
+      } else {
+        hasFailed = true;
+      }
+
+      if (recentPlaysResult.status === 'fulfilled') {
+        setRecentPlays(recentPlaysResult.value);
+      } else {
+        hasFailed = true;
+      }
+
+      if (interactionResult.status === 'fulfilled') {
+        setTodayInteractionCount(countTodayMemberMessages(interactionResult.value.list));
+        const latestItem = interactionResult.value.list.find((item) => Boolean(sanitizeInteractionContent(item.content)));
+        setLatestInteraction(latestItem ? sanitizeInteractionContent(latestItem.content) : '');
+      } else {
+        hasFailed = true;
+        setTodayInteractionCount(0);
+        setLatestInteraction('');
+      }
+
+      if (hasFailed) {
+        Taro.showToast({ title: '部分数据同步失败', icon: 'none' });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : '概览加载失败';
       Taro.showToast({ title: message, icon: 'none' });
@@ -174,7 +223,7 @@ export default function FamilyDashboardPage() {
 
   return (
     <View className='ff-page ff-page--tab'>
-      <View className='ff-hero'>
+      <View className='ff-hero' style={navigation.heroStyle}>
         <View className='ff-hero__top'>
           <View>
             <Text className='ff-kicker'>正在照护</Text>

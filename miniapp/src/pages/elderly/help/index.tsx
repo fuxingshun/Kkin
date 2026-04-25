@@ -7,9 +7,11 @@ import {
   sendSOSAlert,
   type FamilyUser,
 } from '@/services/elderly';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { getElderlySession } from '@/utils/session';
 
 export default function ElderlyHelpPage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const { familyId, elderlyId } = getElderlySession();
   const [showEmergencyConfirm, setShowEmergencyConfirm] = useState(false);
   const [emergencySent, setEmergencySent] = useState(false);
@@ -56,7 +58,7 @@ export default function ElderlyHelpPage() {
 
   if (emergencySent) {
     return (
-      <View className='ef-page ef-page--sub ef-success-screen'>
+      <View className={`ef-page ef-page--sub ef-success-screen ${preferenceClassName}`}>
         <View className='ef-success-icon'>✓</View>
         <Text className='ef-success-title'>求助已发送</Text>
         <Text className='ef-success-text'>您的家人已收到求助通知{'\n'}他们会尽快联系您</Text>
@@ -67,21 +69,21 @@ export default function ElderlyHelpPage() {
   }
 
   return (
-    <View className='ef-page ef-page--sub'>
+    <View className={`ef-page ef-page--sub ${preferenceClassName}`}>
       <View className='ef-topbar'>
         <Text className='ef-topbar__back' onClick={() => Taro.redirectTo({ url: '/pages/elderly/home/index' })}>〈</Text>
-        <Text className='ef-topbar__title'>求助中心</Text>
+        <Text className='ef-topbar__title'>紧急求助</Text>
         <Text className='ef-topbar__space' />
       </View>
 
       <View className='ef-help-content'>
         <View className='ef-emergency-card'>
+          <View className='ef-emergency-icon'>!</View>
           <Text className='ef-emergency-title'>遇到紧急情况？</Text>
-          <Text className='ef-emergency-desc'>点击下方按钮立即通知家人</Text>
+          <Text className='ef-emergency-desc'>点击下方按钮立即通知所有家属联系人</Text>
           <Button className='ef-emergency-button' onClick={() => setShowEmergencyConfirm(true)}>
-            急 紧急求助
+            发送紧急求助
           </Button>
-          <Text className='ef-emergency-note'>将同时通知所有家属联系人</Text>
         </View>
 
         <View className='ef-panel'>
@@ -118,10 +120,10 @@ export default function ElderlyHelpPage() {
         </View>
 
         <View className='ef-tip-card'>
-          <Text className='ef-card-title'>温馨提示</Text>
-          <Text className='ef-tip-line'>· 紧急求助会写入数据库并同步给家属端通知中心</Text>
-          <Text className='ef-tip-line'>· 联系家人会创建一条待处理通知，请保持手机畅通</Text>
-          <Text className='ef-tip-line'>· 如需修改联系人，请在后台或家属端更新家庭成员</Text>
+          <Text className='ef-card-title'>使用说明</Text>
+          <Text className='ef-tip-line'>· 紧急求助功能会同时通知所有家属联系人，请在真正需要时使用</Text>
+          <Text className='ef-tip-line'>· 拨打电话功能会直接呼叫家属，请确保手机信号良好</Text>
+          <Text className='ef-tip-line'>· 如需修改联系人信息，请在个人中心进行设置</Text>
         </View>
       </View>
 

@@ -1,6 +1,9 @@
-import Taro from '@tarojs/taro';
+import { useCallback, useState } from 'react';
+import Taro, { useDidShow } from '@tarojs/taro';
 import { Text, View } from '@tarojs/components';
 import { ServiceTabBar } from '@/components/ServiceTabBar';
+import { getServiceOverview, type ServiceOverview } from '@/services/service';
+import { getServiceSession } from '@/utils/serviceSession';
 
 const menuItems = [
   { title: '个人信息', desc: '服务人员资料与执业信息', path: '/pages/service/workspace/index' },
@@ -10,6 +13,24 @@ const menuItems = [
 ];
 
 export default function ServiceProfilePage() {
+  const [serviceSession, setServiceSession] = useState(() => getServiceSession());
+  const [overview, setOverview] = useState<ServiceOverview | null>(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      setServiceSession(getServiceSession());
+      const nextOverview = await getServiceOverview();
+      setOverview(nextOverview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '服务概况加载失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    }
+  }, []);
+
+  useDidShow(() => {
+    void loadData();
+  });
+
   return (
     <View className='service-page'>
       <View className='service-hero service-hero--solid'>
@@ -18,7 +39,7 @@ export default function ServiceProfilePage() {
             <Text>服</Text>
           </View>
           <View>
-            <Text className='service-hero__title'>服务人员中心</Text>
+            <Text className='service-hero__title'>{serviceSession.displayName || '服务人员中心'}</Text>
             <Text className='service-hero__subtitle'>把个案、工单和随访统一收口管理</Text>
           </View>
         </View>
@@ -28,12 +49,20 @@ export default function ServiceProfilePage() {
         <Text className='service-section__title'>工作概况</Text>
         <View className='service-two-grid'>
           <View className='service-info-box'>
-            <Text className='service-stat__value'>实时</Text>
-            <Text className='service-card-meta'>任务同步</Text>
+            <Text className='service-stat__value'>{overview?.task_stats.pending ?? 0}</Text>
+            <Text className='service-card-meta'>待处理工单</Text>
           </View>
           <View className='service-info-box'>
-            <Text className='service-stat__value'>闭环</Text>
-            <Text className='service-card-meta'>处理流转</Text>
+            <Text className='service-stat__value'>{overview?.followup_stats.active ?? 0}</Text>
+            <Text className='service-card-meta'>进行中随访</Text>
+          </View>
+          <View className='service-info-box'>
+            <Text className='service-stat__value'>{overview?.case_stats.high ?? 0}</Text>
+            <Text className='service-card-meta'>高风险个案</Text>
+          </View>
+          <View className='service-info-box'>
+            <Text className='service-stat__value'>{overview?.task_stats.completed ?? 0}</Text>
+            <Text className='service-card-meta'>已闭环工单</Text>
           </View>
         </View>
       </View>

@@ -13,6 +13,7 @@ import {
   type MoodType,
   type RecommendedMedia,
 } from '@/services/elderly';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { getElderlySession } from '@/utils/session';
 
 type FeedbackType = 'like' | 'dislike';
@@ -23,6 +24,7 @@ function parseMediaId(value?: string) {
 }
 
 export default function ElderlyMediaPage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const { familyId, elderlyId, elderName } = getElderlySession();
   const [loading, setLoading] = useState(true);
   const [mediaList, setMediaList] = useState<RecommendedMedia[]>([]);
@@ -119,7 +121,7 @@ export default function ElderlyMediaPage() {
   }
 
   return (
-    <View className='ke-page ke-page--compact'>
+    <View className={`ke-page ke-page--compact ${preferenceClassName}`}>
       <View className='ke-hero'>
         <Text className='ke-eyebrow'>Memory Player</Text>
         <Text className='ke-title'>{elderName}的回忆播放页</Text>

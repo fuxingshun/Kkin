@@ -34,9 +34,48 @@ spring:
     password: your-mysql-password
 
 kinecho:
+  api-token-enabled: false
+  api-token: ''
   bailian-api-key: sk-your-bailian-api-key
   bailian-asr-file-base-url: ''
 ```
+
+生产环境应开启 API Token 校验，并在管理端、小程序端配置同一个 Token：
+
+```yaml
+kinecho:
+  api-token-enabled: true
+  api-token: your-long-random-token
+```
+
+前端请求会通过 `Authorization: Bearer ...` 和 `X-KinEcho-Token` 发送 Token。
+
+## 登录接口
+
+后端现已提供统一登录接口：
+
+- `POST /api/auth/login`
+
+支持四种角色：
+
+- `elderly`：老人端，使用老人姓名或手机号登录
+- `family`：家属端，使用家属姓名或手机号登录
+- `service`：服务端，使用服务账号登录
+- `admin`：管理端，使用后台账号登录
+
+本地演示环境默认规则：
+
+- 老人端、家属端密码可使用手机号后 6 位；如无手机号，可使用 `kinecho.demo-login-password`
+- 服务端默认账号来自 `kinecho.service-username` / `kinecho.service-password`
+- 管理端默认账号来自 `kinecho.admin-username` / `kinecho.admin-password`
+
+服务端还新增了聚合概况接口：
+
+- `GET /api/service/overview?family_id=family_001`
+- `GET /api/admin/service-summary?family_id=family_001`
+- `GET /api/admin/analytics?family_id=family_001&months=6&days=7`
+
+用于服务人员中心展示待处理工单、风险个案和随访统计，同时为管理端服务协同页和数据分析页提供真实后端汇总数据。
 
 `bailian-asr-file-base-url` 用于给百炼访问录音文件。生产环境建议配置为你的公网域名，例如：
 

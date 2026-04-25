@@ -5,18 +5,20 @@ import { ElderlyTabBar } from '@/components/ElderlyTabBar';
 import {
   createMoodRecord,
   getMoodRecords,
+  getTodayMoodRecords,
   moodLabelMap,
   type MoodRecord,
   type MoodType,
 } from '@/services/elderly';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { formatDateTimeText } from '@/utils/format';
 import { getElderlySession } from '@/utils/session';
 
 const emotions: Array<{ label: string; value: MoodType; tone: string; score: number }> = [
-  { label: '开心', value: 'happy', tone: 'yellow', score: 9 },
-  { label: '平稳', value: 'calm', tone: 'green', score: 7 },
+  { label: '开心', value: 'happy', tone: 'green', score: 9 },
+  { label: '平稳', value: 'calm', tone: 'blue', score: 7 },
   { label: '疲惫', value: 'tired', tone: 'gray', score: 5 },
-  { label: '难过', value: 'sad', tone: 'blue', score: 3 },
+  { label: '难过', value: 'sad', tone: 'purple', score: 3 },
   { label: '焦虑', value: 'anxious', tone: 'amber', score: 4 },
   { label: '生气', value: 'angry', tone: 'red', score: 2 },
 ];
@@ -25,26 +27,31 @@ const sleepQuality = ['很好', '一般', '较差'];
 const appetite = ['很好', '一般', '较差'];
 const activities = [
   { label: '散步', value: 'walk' },
-  { label: '喝水', value: 'water' },
   { label: '做操', value: 'exercise' },
-  { label: '晒太阳', value: 'sun' },
+  { label: '喝水', value: 'water' },
+  { label: '户外', value: 'outdoor' },
 ];
 
 export default function ElderlyRecordPage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const { familyId, elderlyId } = getElderlySession();
-  const [selectedEmotion, setSelectedEmotion] = useState<MoodType | ''>('');
+  const [selectedEmotion, setSelectedEmotion] = useState<MoodType | ''>('happy');
   const [selectedSleep, setSelectedSleep] = useState('');
   const [selectedAppetite, setSelectedAppetite] = useState('');
   const [selectedActivities, setSelectedActivities] = useState<string[]>([]);
   const [medicationTaken, setMedicationTaken] = useState(false);
   const [records, setRecords] = useState<MoodRecord[]>([]);
+  const [todayRecords, setTodayRecords] = useState<MoodRecord[]>([]);
   const [saving, setSaving] = useState(false);
-  const [showTrendDetails, setShowTrendDetails] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
-      const list = await getMoodRecords(familyId, elderlyId, 20);
+      const [list, todayList] = await Promise.all([
+        getMoodRecords(familyId, elderlyId, 20),
+        getTodayMoodRecords(familyId, elderlyId),
+      ]);
       setRecords(list);
+      setTodayRecords(todayList);
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载失败';
       Taro.showToast({ title: message, icon: 'none' });
@@ -72,6 +79,7 @@ export default function ElderlyRecordPage() {
     [selectedEmotion]
   );
   const recentRecords = useMemo(() => records.slice(0, 7), [records]);
+  const todayRecord = todayRecords[0] || null;
   const averageScore = useMemo(() => {
     if (!recentRecords.length) {
       return 0;
@@ -83,6 +91,11 @@ export default function ElderlyRecordPage() {
   }, [recentRecords]);
 
   async function saveRecord() {
+    if (todayRecord) {
+      Taro.showToast({ title: '今天已经记录过了', icon: 'none' });
+      return;
+    }
+
     if (!selectedEmotion || !selectedEmotionMeta) {
       Taro.showToast({ title: '请选择今天的感觉', icon: 'none' });
       return;
@@ -107,7 +120,7 @@ export default function ElderlyRecordPage() {
         triggerEvent: activityText,
       });
       Taro.showToast({ title: '已保存', icon: 'success' });
-      setSelectedEmotion('');
+      setSelectedEmotion('happy');
       setSelectedSleep('');
       setSelectedAppetite('');
       setSelectedActivities([]);
@@ -122,23 +135,36 @@ export default function ElderlyRecordPage() {
   }
 
   return (
-    <View className='ef-page ef-page--tab'>
-      <View className='ef-record-hero'>
+    <View className={`ef-page ef-page--tab ${preferenceClassName}`}>
+      <View className='ef-record-hero' style={{ background: '#0EA5A5' }}>
         <Text className='ef-page-head__title'>今日记录</Text>
-        <Text className='ef-record-hero__desc'>记录您的每日状态，帮助我们更好地照顾您</Text>
+        <Text className='ef-record-hero__desc'>记录您的每日状态，帮助我们更好地了解和照顾您</Text>
       </View>
 
       <View className='ef-record-stack'>
         <View className='ef-panel ef-panel--lift'>
           <Text className='ef-section-title'>今日情绪</Text>
+          {todayRecord ? (
+            <View className='ef-specialty' style={{ marginTop: '20rpx' }}>
+              <Text>今天已记录：{moodLabelMap[todayRecord.mood_type] || todayRecord.mood_type}</Text>
+              <Text>记录时间：{formatDateTimeText(todayRecord.recorded_at || todayRecord.created_at || '')}</Text>
+            </View>
+          ) : (
+            <Text className='ef-record-meta'>记录时间：现在 · 当前：{selectedEmotionMeta?.label || '开心'}</Text>
+          )}
           <View className='ef-emotion-grid'>
             {emotions.map((emotion) => (
               <View
                 key={emotion.value}
                 className={`ef-emotion ef-emotion--${emotion.tone} ${selectedEmotion === emotion.value ? 'ef-emotion--active' : ''}`}
-                onClick={() => setSelectedEmotion(emotion.value)}
+                onClick={() => {
+                  if (!todayRecord) {
+                    setSelectedEmotion(emotion.value);
+                  }
+                }}
+                style={todayRecord ? { opacity: 0.45 } : undefined}
               >
-                <Text className='ef-emotion__icon'>感</Text>
+                <Text className='ef-emotion__icon'>{emotion.label.slice(0, 1)}</Text>
                 <Text>{emotion.label}</Text>
               </View>
             ))}
@@ -155,7 +181,12 @@ export default function ElderlyRecordPage() {
               <View
                 key={item}
                 className={`ef-choice ${selectedSleep === item ? 'ef-choice--active' : ''}`}
-                onClick={() => setSelectedSleep(item)}
+                onClick={() => {
+                  if (!todayRecord) {
+                    setSelectedSleep(item);
+                  }
+                }}
+                style={todayRecord ? { opacity: 0.45 } : undefined}
               >
                 <Text>{item}</Text>
               </View>
@@ -173,7 +204,12 @@ export default function ElderlyRecordPage() {
               <View
                 key={item}
                 className={`ef-choice ${selectedAppetite === item ? 'ef-choice--active' : ''}`}
-                onClick={() => setSelectedAppetite(item)}
+                onClick={() => {
+                  if (!todayRecord) {
+                    setSelectedAppetite(item);
+                  }
+                }}
+                style={todayRecord ? { opacity: 0.45 } : undefined}
               >
                 <Text>{item}</Text>
               </View>
@@ -190,7 +226,12 @@ export default function ElderlyRecordPage() {
                 <View
                   key={item.value}
                   className={`ef-activity ${active ? 'ef-activity--active' : ''}`}
-                  onClick={() => toggleActivity(item.value)}
+                  onClick={() => {
+                    if (!todayRecord) {
+                      toggleActivity(item.value);
+                    }
+                  }}
+                  style={todayRecord ? { opacity: 0.45 } : undefined}
                 >
                   <Text className='ef-emotion__icon'>{active ? '✓' : '动'}</Text>
                   <Text>{item.label}</Text>
@@ -207,57 +248,35 @@ export default function ElderlyRecordPage() {
           </View>
           <Button
             className={`ef-med-button ${medicationTaken ? 'ef-med-button--active' : ''}`}
-            onClick={() => setMedicationTaken((value) => !value)}
+            onClick={() => {
+              if (!todayRecord) {
+                setMedicationTaken((value) => !value);
+              }
+            }}
+            style={todayRecord ? { opacity: 0.45 } : undefined}
           >
             {medicationTaken ? '今日已服药' : '点击确认服药'}
           </Button>
         </View>
 
-        <Button className='ef-save-button' loading={saving} onClick={saveRecord}>保存今日记录</Button>
+        <Button className='ef-save-button' disabled={Boolean(todayRecord)} loading={saving} onClick={saveRecord}>
+          {todayRecord ? '今日已记录' : '保存今日记录'}
+        </Button>
 
         <View className='ef-panel'>
-          <Text className='ef-section-title'>近7日趋势</Text>
+          <Text className='ef-section-title'>近7日数据</Text>
           <View className='ef-trend-list'>
             <View className='ef-trend-row'><Text>情绪记录</Text><Text>{records.length}次</Text></View>
             <View className='ef-trend-row'><Text>最近状态</Text><Text>{records[0]?.mood_type ? emotions.find((item) => item.value === records[0].mood_type)?.label : '未记录'}</Text></View>
             <View className='ef-trend-row'><Text>服药确认</Text><Text>{records.filter((item) => item.note?.includes('已确认')).length}次</Text></View>
             <View className='ef-trend-row'><Text>平均分</Text><Text>{recentRecords.length ? averageScore.toFixed(1) : '--'}</Text></View>
           </View>
-          <Button className='ef-soft-link-button' onClick={() => setShowTrendDetails((value) => !value)}>
-            {showTrendDetails ? '收起详细趋势' : '查看详细趋势'}
+          <Button
+            className='ef-soft-link-button'
+            onClick={() => Taro.navigateTo({ url: '/pages/elderly/record-history/index' })}
+          >
+            查看详细趋势
           </Button>
-          {showTrendDetails ? (
-            <View className='ef-list' style={{ marginTop: '24rpx' }}>
-              {recentRecords.length ? (
-                recentRecords.map((record, index) => (
-                  <View className='ef-history-card' key={`${record.id || record.created_at || index}`}>
-                    <View className='ef-history-head'>
-                      <View className='ef-history-icon'>{moodLabelMap[record.mood_type]?.slice(0, 1) || '情'}</View>
-                      <View>
-                        <View className='ef-inline'>
-                          <Text className='ef-card-title'>{moodLabelMap[record.mood_type] || record.mood_type}</Text>
-                          <Text className='ef-done-badge'>评分 {record.mood_score}</Text>
-                        </View>
-                        <Text className='ef-muted'>
-                          {formatDateTimeText(record.recorded_at || record.created_at || '') || '刚刚记录'}
-                        </Text>
-                      </View>
-                    </View>
-                    {record.note ? (
-                      <View className='ef-specialty'>
-                        <Text>{record.note}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                ))
-              ) : (
-                <View className='ef-history-card'>
-                  <Text className='ef-card-title'>还没有详细记录</Text>
-                  <Text className='ef-card-text'>先完成今天的情绪记录，这里会同步展示最近趋势。</Text>
-                </View>
-              )}
-            </View>
-          ) : null}
         </View>
       </View>
 

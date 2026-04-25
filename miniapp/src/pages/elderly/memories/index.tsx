@@ -2,24 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Image, Text, Video, View } from '@tarojs/components';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
+import { memoryCategoryOptions } from '@/constants/mediaCategories';
 import { speakWithAi } from '@/services/aiCompanion';
 import {
   getMediaUrl,
   getRecommendedMedia,
   getThumbnailUrl,
   recordMediaPlay,
-  submitMediaFeedback,
   type RecommendedMedia,
 } from '@/services/elderly';
-import { formatRelativeTime } from '@/utils/format';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { getElderlySession } from '@/utils/session';
 
 export default function ElderlyMemoriesPage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const { familyId, elderlyId } = getElderlySession();
   const [mediaList, setMediaList] = useState<RecommendedMedia[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState('全部回忆');
-  const [feedbackById, setFeedbackById] = useState<Record<number, 'like' | 'dislike'>>({});
   const [narrating, setNarrating] = useState(false);
   const audioContextRef = useRef<Taro.InnerAudioContext | null>(null);
 
@@ -63,24 +63,20 @@ export default function ElderlyMemoriesPage() {
   });
 
   const categories = useMemo(() => {
-    const tagCounts = new Map<string, number>();
-    mediaList.forEach((item) => {
-      (item.tags || []).forEach((tag) => {
-        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
-      });
-    });
-
     return [
       { name: '全部回忆', count: mediaList.length },
-      { name: '照片', count: mediaList.filter((item) => item.media_type === 'photo').length },
+      { name: '图片', count: mediaList.filter((item) => item.media_type === 'photo').length },
       { name: '视频', count: mediaList.filter((item) => item.media_type === 'video').length },
-      ...Array.from(tagCounts.entries()).slice(0, 3).map(([name, count]) => ({ name, count })),
+      ...memoryCategoryOptions.map((name) => ({
+        name,
+        count: mediaList.filter((item) => (item.tags || []).includes(name)).length,
+      })),
     ];
   }, [mediaList]);
 
   const filteredList = useMemo(() => {
     if (activeCategory === '全部回忆') return mediaList;
-    if (activeCategory === '照片') return mediaList.filter((item) => item.media_type === 'photo');
+    if (activeCategory === '图片') return mediaList.filter((item) => item.media_type === 'photo');
     if (activeCategory === '视频') return mediaList.filter((item) => item.media_type === 'video');
     return mediaList.filter((item) => item.tags?.includes(activeCategory));
   }, [activeCategory, mediaList]);
@@ -98,14 +94,31 @@ export default function ElderlyMemoriesPage() {
     }
   }
 
-  async function handleLike() {
-    if (!currentMemory) return;
+  async function handlePlayPrimary() {
+    if (!currentMemory) {
+      Taro.showToast({ title: '暂无可播放内容', icon: 'none' });
+      return;
+    }
+
     try {
-      await submitMediaFeedback(currentMemory.id, 'like', elderlyId);
-      setFeedbackById((prev) => ({ ...prev, [currentMemory.id]: 'like' }));
-      Taro.showToast({ title: '已记下喜欢', icon: 'success' });
+      await recordMediaPlay(currentMemory.id, elderlyId);
+
+      if (currentMemory.media_type === 'video') {
+        Taro.createVideoContext('elderly-memory-video').play();
+        return;
+      }
+
+      const currentUrl = getMediaUrl(currentMemory.file_path);
+      const imageUrls = filteredList
+        .filter((item) => item.media_type === 'photo')
+        .map((item) => getMediaUrl(item.file_path));
+
+      await Taro.previewImage({
+        current: currentUrl,
+        urls: imageUrls.length ? imageUrls : [currentUrl],
+      });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '提交失败';
+      const message = error instanceof Error ? error.message : '播放失败';
       Taro.showToast({ title: message, icon: 'none' });
     }
   }
@@ -151,22 +164,23 @@ export default function ElderlyMemoriesPage() {
   }
 
   return (
-    <View className='ef-page ef-page--tab'>
-      <View className='ef-page-head'>
-        <Text className='ef-page-head__title'>回忆播放</Text>
-        <Text className='ef-page-head__desc'>看看家人为您准备的美好回忆</Text>
-      </View>
-
+    <View className={`ef-page ef-page--tab ${preferenceClassName}`}>
       <View className='ef-memory-player'>
         <View className='ef-memory-player__stage'>
           {currentMemory ? (
             currentMemory.media_type === 'video' ? (
               <Video
+                id='elderly-memory-video'
                 className='ef-memory-player__video'
                 src={getMediaUrl(currentMemory.file_path)}
                 poster={currentMemory.thumbnail_path ? getThumbnailUrl(currentMemory.thumbnail_path) : undefined}
                 controls
                 objectFit='contain'
+                onEnded={() => {
+                  if (filteredList.length > 1) {
+                    void switchToIndex(currentIndex < filteredList.length - 1 ? currentIndex + 1 : 0);
+                  }
+                }}
               />
             ) : (
               <Image
@@ -178,9 +192,9 @@ export default function ElderlyMemoriesPage() {
           ) : (
             <View className='ef-stage-center'>
               <View className='ef-stage-icon'>
-                <Text>忆</Text>
+                <Text>♡</Text>
               </View>
-              <Text>家人上传照片或视频后会显示在这里</Text>
+              <Text>照片/视频展示</Text>
             </View>
           )}
           {filteredList.length > 1 ? (
@@ -199,20 +213,12 @@ export default function ElderlyMemoriesPage() {
               </Button>
             </>
           ) : null}
-          <Button className='ef-stage-play'>播</Button>
+          <Button className='ef-stage-play' disabled={!currentMemory} onClick={() => void handlePlayPrimary()}>
+            播
+          </Button>
           <Text className='ef-stage-count'>{currentMemory ? `${currentIndex + 1} / ${filteredList.length}` : '0 / 0'}</Text>
         </View>
-        <View className='ef-memory-info'>
-          <View className='ef-memory-info__main'>
-            <Text className='ef-page-head__title'>{currentMemory?.title || '暂无回忆内容'}</Text>
-            <Text className='ef-card-text'>{currentMemory?.description || '请先在家属端上传照片或视频。'}</Text>
-            <Text className='ef-muted'>{currentMemory ? `${currentMemory.media_type === 'video' ? '视频' : '照片'} · ${formatRelativeTime(currentMemory.last_played_at || currentMemory.created_at || '')}` : '数据库暂无内容'}</Text>
-          </View>
-          <View className={`ef-like ${currentMemory && feedbackById[currentMemory.id] === 'like' ? 'ef-like--active' : ''}`} onClick={handleLike}>
-            <Text>心</Text>
-          </View>
-        </View>
-        <View className='ef-two-actions'>
+        <View className='ef-memory-controls'>
           <Button className='ef-blue-button' onClick={() => switchToIndex((currentIndex + 1) % Math.max(filteredList.length, 1))}>自动播放</Button>
           <Button className='ef-soft-button' loading={narrating} disabled={!currentMemory || narrating} onClick={() => void handleNarrate()}>
             {narrating ? '讲述中...' : '语音讲述'}
@@ -221,7 +227,7 @@ export default function ElderlyMemoriesPage() {
       </View>
 
       <View className='ef-content-pad'>
-        <Text className='ef-section-title'>回忆专题</Text>
+        <Text className='ef-section-title'>回忆分类</Text>
         <View className='ef-category-grid'>
           {categories.map((category) => (
             <View
@@ -234,23 +240,6 @@ export default function ElderlyMemoriesPage() {
             >
               <Text className='ef-category__name'>{category.name}</Text>
               <Text className='ef-category__count'>{category.count} 个回忆</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View className='ef-content-pad'>
-        <Text className='ef-section-title'>更多推荐</Text>
-        <View className='ef-list'>
-          {filteredList.slice(0, 3).map((item, index) => (
-            <View className='ef-media-row' key={item.id} onClick={() => switchToIndex(index)}>
-              <View className='ef-media-row__thumb'>
-                <Text>{item.media_type === 'video' ? '视' : '照'}</Text>
-              </View>
-              <View className='ef-media-row__body'>
-                <Text className='ef-card-title'>{item.title}</Text>
-                <Text className='ef-card-text'>{item.media_type === 'video' ? '视频' : '照片'} · 点击播放</Text>
-              </View>
             </View>
           ))}
         </View>

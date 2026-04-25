@@ -1,6 +1,7 @@
 export default definePageConfig({
-  navigationBarTitleText: '回忆播放',
+  navigationBarTitleText: '回忆相册',
   navigationBarBackgroundColor: '#FFFFFF',
   navigationBarTextStyle: 'black',
+  navigationStyle: 'custom',
   backgroundColor: '#FAFAFF',
 });

@@ -5,7 +5,8 @@
   "description": "KinEcho 微信小程序端，包含老人、家属、服务人员三端。",
   "scripts": {
     "dev:weapp": "node scripts/dev-weapp.js",
-    "build:weapp": "taro build --type weapp && node scripts/ensure-weapp-page-wxss.js && node scripts/patch-weapp-runtime-global.js"
+    "build:weapp": "taro build --type weapp && node scripts/ensure-weapp-page-wxss.js && node scripts/patch-weapp-taro-node-getters.js",
+    "smoke:checklist": "node scripts/smoke-checklist.js"
   },
   "dependencies": {
     "@tarojs/components": "^4.1.11",

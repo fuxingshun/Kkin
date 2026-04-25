@@ -1,7 +1,7 @@
 const path = require('path');
 const { spawn } = require('child_process');
 const { ensureWeappPageWxss } = require('./ensure-weapp-page-wxss');
-const { patchWeappRuntimeGlobal } = require('./patch-weapp-runtime-global');
+const { patchWeappTaroNodeGetters } = require('./patch-weapp-taro-node-getters');
 
 const projectRoot = path.resolve(__dirname, '..');
 const taroBin = path.join(
@@ -12,7 +12,7 @@ const taroBin = path.join(
 );
 
 let lastCreated = -1;
-let lastRuntimePatchState = '';
+let lastTaroPatchState = '';
 
 const taroArgs = ['build', '--type', 'weapp', '--watch'];
 const watcherCommand = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : taroBin;
@@ -36,16 +36,17 @@ const timer = setInterval(() => {
       );
     }
 
-    const runtimeResult = patchWeappRuntimeGlobal();
-    const runtimeState = `${runtimeResult.patched}:${runtimeResult.reason}`;
-    if (runtimeState !== lastRuntimePatchState) {
-      lastRuntimePatchState = runtimeState;
-      if (runtimeResult.patched) {
-        console.log('[dev-weapp] patched runtime global detection for WeChat real device.');
-      } else if (!runtimeResult.skipped) {
-        console.log(`[dev-weapp] runtime patch status: ${runtimeResult.reason}.`);
+    const taroPatchResult = patchWeappTaroNodeGetters();
+    const taroPatchState = `${taroPatchResult.patched}:${taroPatchResult.reason}`;
+    if (taroPatchState !== lastTaroPatchState) {
+      lastTaroPatchState = taroPatchState;
+      if (taroPatchResult.patched) {
+        console.log('[dev-weapp] patched taro firstChild/lastChild getters for real-device stability.');
+      } else if (!taroPatchResult.skipped) {
+        console.log(`[dev-weapp] taro getter patch status: ${taroPatchResult.reason}.`);
       }
     }
+
   } catch (error) {
     console.error('[dev-weapp] failed to ensure wxss files:', error.message);
   }

@@ -1,23 +1,9 @@
 import { DEFAULT_FAMILY_ID } from '@/config/runtime';
-import {
-  createConsultation,
-  getConsultations,
-  getFamilyUsers,
-  type Consultation,
-  type FamilyUser,
-  updateConsultation,
-} from '@/services/elderly';
-import {
-  alertTypeLabelMap,
-  getFamilyAlerts,
-  getFamilyMoods,
-  handleAlert,
-  markAlertAsRead,
-  queryFamilyMoodRecords,
-  type FamilyAlert,
-  type MoodRecord,
-} from '@/services/family';
+import { type Consultation, type FamilyUser, type MoodRecord } from '@/services/elderly';
+import { type FamilyAlert } from '@/services/family';
 import { formatDateTimeValue } from '@/utils/format';
+import { buildQueryString, request } from '@/utils/request';
+import { getCurrentServiceFamilyId } from '@/utils/serviceSession';
 
 export interface ServiceTask {
   id: number;
@@ -55,200 +41,237 @@ export interface ServiceFollowup {
   note?: string;
 }
 
-function getTaskStatus(alert: FamilyAlert): ServiceTask['status'] {
-  if (alert.handled) {
-    return 'completed';
-  }
-
-  if (alert.read) {
-    return 'processing';
-  }
-
-  return 'pending';
+export interface ServiceOverview {
+  family_id: string;
+  task_stats: {
+    pending: number;
+    processing: number;
+    completed: number;
+    total: number;
+  };
+  case_stats: {
+    high: number;
+    medium: number;
+    low: number;
+    total: number;
+  };
+  followup_stats: {
+    scheduled: number;
+    in_progress: number;
+    completed: number;
+    active: number;
+    total: number;
+  };
 }
 
-function getPriority(level?: FamilyAlert['level']): ServiceTask['priority'] {
-  if (level === 'high') return 'high';
-  if (level === 'medium') return 'medium';
+interface ServiceTaskApi {
+  id: number;
+  alert_id: number;
+  elderly_id?: number;
+  elderly_name?: string;
+  type_label?: string;
+  reason: string;
+  priority: ServiceTask['priority'] | string;
+  status: ServiceTask['status'] | string;
+  created_at: string;
+}
+
+interface ServiceCaseApi {
+  elderly_id: number;
+  name: string;
+  phone?: string;
+  family_contact_name?: string;
+  family_contact_phone?: string;
+  risk: ServiceCase['risk'] | string;
+  last_emotion: string;
+  last_emotion_score?: number;
+  last_help_at?: string;
+  open_alert_count: number;
+  latest_alert_id?: number;
+}
+
+interface ServiceCaseDetailApi {
+  family_id: string;
+  case_info: ServiceCaseApi | null;
+  alerts: FamilyAlert[];
+  mood_records: MoodRecord[];
+  mood_trend: Array<{ day: string; score: number }>;
+  consultations: Consultation[];
+  family_contacts: FamilyUser[];
+}
+
+interface ServiceFollowupApi {
+  id: number;
+  elderly_id?: number;
+  elderly_name?: string;
+  consultation_type: Consultation['consultation_type'];
+  scheduled_time: string;
+  status: Consultation['status'];
+  note?: string;
+}
+
+function resolveFamilyId(familyId?: string) {
+  if (!familyId || familyId === DEFAULT_FAMILY_ID) {
+    return getCurrentServiceFamilyId();
+  }
+  return getCurrentServiceFamilyId(familyId);
+}
+
+function normalizeRisk(value?: string): ServiceCase['risk'] {
+  if (value === 'high') return 'high';
+  if (value === 'medium') return 'medium';
   return 'low';
 }
 
-function getRiskScore(mood?: MoodRecord, openAlertCount = 0, alerts: FamilyAlert[] = []) {
-  const highestLevel = alerts.find((item) => !item.handled && item.level === 'high')
-    ? 'high'
-    : alerts.find((item) => !item.handled && item.level === 'medium')
-      ? 'medium'
-      : 'low';
-
-  if (highestLevel === 'high' || openAlertCount >= 2 || (mood?.mood_score ?? 10) <= 4) {
-    return 'high' as const;
-  }
-
-  if (highestLevel === 'medium' || openAlertCount >= 1 || (mood?.mood_score ?? 10) <= 6) {
-    return 'medium' as const;
-  }
-
-  return 'low' as const;
+function normalizePriority(value?: string): ServiceTask['priority'] {
+  if (value === 'high') return 'high';
+  if (value === 'medium') return 'medium';
+  return 'low';
 }
 
-function riskRank(risk: ServiceCase['risk']) {
-  if (risk === 'high') return 3;
-  if (risk === 'medium') return 2;
-  return 1;
-}
-
-function getMoodLabel(record?: MoodRecord) {
-  if (!record) return '暂无记录';
-  return `${record.mood_type} ${record.mood_score ?? '--'}分`;
+function normalizeTaskStatus(value?: string): ServiceTask['status'] {
+  if (value === 'processing') return 'processing';
+  if (value === 'completed') return 'completed';
+  return 'pending';
 }
 
 function mapConsultationType(type: Consultation['consultation_type']) {
   if (type === 'phone') return '电话随访';
   if (type === 'video') return '视频随访';
-  if (type === 'text') return '文字记录';
+  if (type === 'text') return '服务记录';
   return '服务记录';
 }
 
-export async function getServiceTasks(familyId = DEFAULT_FAMILY_ID, limit = 50) {
-  const { alerts } = await getFamilyAlerts(familyId, { limit });
+function toServiceTask(item: ServiceTaskApi): ServiceTask {
+  return {
+    id: Number(item.id || item.alert_id || 0),
+    alertId: Number(item.alert_id || item.id || 0),
+    elderlyId: item.elderly_id,
+    elderlyName: item.elderly_name || (item.elderly_id ? `老人${item.elderly_id}` : '未绑定老人'),
+    typeLabel: item.type_label || '服务工单',
+    reason: item.reason || '',
+    priority: normalizePriority(item.priority),
+    status: normalizeTaskStatus(item.status),
+    createdAt: item.created_at,
+  };
+}
 
-  return alerts.map<ServiceTask>((alert) => ({
-    id: alert.id,
-    alertId: alert.id,
-    elderlyId: alert.elderly_id,
-    elderlyName: alert.elderly_name || `老人${alert.elderly_id ?? ''}` || '未绑定老人',
-    typeLabel: alert.title || alertTypeLabelMap[alert.alert_type] || '服务工单',
-    reason: alert.message,
-    priority: getPriority(alert.level),
-    status: getTaskStatus(alert),
-    createdAt: alert.created_at,
-  }));
+function toServiceCase(item: ServiceCaseApi): ServiceCase {
+  return {
+    elderlyId: item.elderly_id,
+    name: item.name,
+    phone: item.phone,
+    familyContactName: item.family_contact_name,
+    familyContactPhone: item.family_contact_phone,
+    risk: normalizeRisk(item.risk),
+    lastEmotion: item.last_emotion || '暂无记录',
+    lastEmotionScore: item.last_emotion_score,
+    lastHelpAt: item.last_help_at,
+    openAlertCount: Number(item.open_alert_count || 0),
+    latestAlertId: item.latest_alert_id,
+  };
+}
+
+function toServiceFollowup(item: ServiceFollowupApi): ServiceFollowup {
+  return {
+    id: Number(item.id || 0),
+    elderlyId: item.elderly_id,
+    elderlyName: item.elderly_name || (item.elderly_id ? `老人${item.elderly_id}` : '未绑定老人'),
+    consultationType: mapConsultationType(item.consultation_type),
+    scheduledTime: item.scheduled_time,
+    status: item.status,
+    note: item.note,
+  };
+}
+
+export async function getServiceOverview(familyId = DEFAULT_FAMILY_ID) {
+  return request<ServiceOverview>(`/service/overview?family_id=${encodeURIComponent(resolveFamilyId(familyId))}`);
+}
+
+export async function getServiceTasks(familyId = DEFAULT_FAMILY_ID, limit = 50) {
+  const query = buildQueryString({ family_id: resolveFamilyId(familyId), limit });
+  const data = await request<{ tasks: ServiceTaskApi[] }>(`/service/tasks?${query}`);
+  return (data.tasks || []).map(toServiceTask);
 }
 
 export async function startServiceTask(alertId: number) {
-  return markAlertAsRead(alertId);
+  await request<{ success: boolean }>(`/service/tasks/${alertId}/start`, {
+    method: 'POST',
+    data: {},
+  });
+  return true;
 }
 
-export async function completeServiceTask(alertId: number, replyMessage = '已完成本次跟进处理') {
-  return handleAlert(alertId, { reply_message: replyMessage });
+export async function completeServiceTask(alertId: number, replyMessage = '服务端已完成处理') {
+  await request<{ success: boolean }>(`/service/tasks/${alertId}/complete`, {
+    method: 'POST',
+    data: { reply_message: replyMessage },
+  });
+  return true;
 }
 
 export async function getServiceCases(familyId = DEFAULT_FAMILY_ID) {
-  const [users, { alerts }, moods] = await Promise.all([
-    getFamilyUsers(familyId),
-    getFamilyAlerts(familyId, { limit: 100 }),
-    getFamilyMoods(familyId, 100),
-  ]);
-
-  const familyContacts = users.filter((item) => item.user_type === 'family');
-  const primaryContact = familyContacts[0];
-
-  return users
-    .filter((item) => item.user_type === 'elderly')
-    .map<ServiceCase>((elder) => {
-      const elderAlerts = alerts.filter((item) => item.elderly_id === elder.id);
-      const openAlertCount = elderAlerts.filter((item) => !item.handled).length;
-      const latestMood = moods.find((item) => item.elderly_id === elder.id);
-      const latestAlert = elderAlerts[0];
-      const risk = getRiskScore(latestMood, openAlertCount, elderAlerts);
-
-      return {
-        elderlyId: elder.id,
-        name: elder.name,
-        phone: elder.phone,
-        familyContactName: primaryContact?.name,
-        familyContactPhone: primaryContact?.phone,
-        risk,
-        lastEmotion: getMoodLabel(latestMood),
-        lastEmotionScore: latestMood?.mood_score,
-        lastHelpAt: latestAlert?.created_at,
-        openAlertCount,
-        latestAlertId: latestAlert?.id,
-      };
-    })
-    .sort((left, right) => {
-      const riskDiff = riskRank(right.risk) - riskRank(left.risk);
-      if (riskDiff !== 0) {
-        return riskDiff;
-      }
-
-      return (right.openAlertCount || 0) - (left.openAlertCount || 0);
-    });
+  const query = buildQueryString({ family_id: resolveFamilyId(familyId) });
+  const data = await request<{ cases: ServiceCaseApi[] }>(`/service/cases?${query}`);
+  return (data.cases || []).map(toServiceCase);
 }
 
 export async function getServiceCaseDetail(familyId = DEFAULT_FAMILY_ID, elderlyId: number) {
-  const [cases, alertsResult, moods, consultations, users] = await Promise.all([
-    getServiceCases(familyId),
-    getFamilyAlerts(familyId, { elderlyId, limit: 20 }),
-    queryFamilyMoodRecords(familyId, { elderlyId, limit: 14 }),
-    getConsultations(familyId, elderlyId, 20),
-    getFamilyUsers(familyId),
-  ]);
-
-  const detailCase = cases.find((item) => item.elderlyId === elderlyId);
-  const familyContacts = users.filter((item) => item.user_type === 'family');
+  const query = buildQueryString({ family_id: resolveFamilyId(familyId) });
+  const data = await request<ServiceCaseDetailApi>(`/service/cases/${elderlyId}?${query}`);
 
   return {
-    caseInfo: detailCase,
-    alerts: alertsResult.alerts,
-    moodRecords: moods,
-    moodTrend: moods.slice(0, 7).reverse().map((item, index) => ({
-      day: item.recorded_at?.slice(5, 10) || item.created_at?.slice(5, 10) || `${index + 1}`,
-      score: item.mood_score || 0,
-    })),
-    consultations,
-    familyContacts,
+    caseInfo: data.case_info ? toServiceCase(data.case_info) : null,
+    alerts: data.alerts || [],
+    moodRecords: data.mood_records || [],
+    moodTrend: data.mood_trend || [],
+    consultations: data.consultations || [],
+    familyContacts: data.family_contacts || [],
   };
 }
 
 export async function getServiceFollowups(familyId = DEFAULT_FAMILY_ID, limit = 30) {
-  const consultations = await getConsultations(familyId, undefined, limit);
-  const users = await getFamilyUsers(familyId);
-  const elderlyMap = new Map(
-    users.filter((item) => item.user_type === 'elderly').map((item) => [item.id, item.name])
-  );
-
-  return consultations
-    .map<ServiceFollowup>((item) => ({
-      id: item.id,
-      elderlyId: item.elderly_id,
-      elderlyName: item.elderly_id ? elderlyMap.get(item.elderly_id) || `老人${item.elderly_id}` : '未绑定老人',
-      consultationType: mapConsultationType(item.consultation_type),
-      scheduledTime: item.scheduled_time,
-      status: item.status,
-      note: item.note,
-    }))
-    .sort((left, right) => left.scheduledTime.localeCompare(right.scheduledTime));
+  const query = buildQueryString({ family_id: resolveFamilyId(familyId), limit });
+  const data = await request<{ followups: ServiceFollowupApi[] }>(`/service/followups?${query}`);
+  return (data.followups || []).map(toServiceFollowup);
 }
 
 export async function advanceFollowupStatus(consultation: ServiceFollowup) {
-  if (consultation.status === 'scheduled') {
-    return updateConsultation(consultation.id, { status: 'in_progress' });
+  if (consultation.status === 'completed') {
+    return true;
   }
 
-  if (consultation.status === 'in_progress') {
-    return updateConsultation(consultation.id, { status: 'completed' });
-  }
-
-  return true;
+  const nextStatus = consultation.status === 'scheduled' ? 'in_progress' : 'completed';
+  const data = await request<{ success: boolean }>(`/service/followups/${consultation.id}/status`, {
+    method: 'PUT',
+    data: {
+      family_id: resolveFamilyId(),
+      status: nextStatus,
+    },
+  });
+  return data.success;
 }
 
 export async function createQuickFollowup(
   elderlyId: number,
   familyId = DEFAULT_FAMILY_ID,
-  consultationType: Consultation['consultation_type'] = 'phone',
+  consultationType: 'phone' | 'video' | 'text' = 'phone',
   note = '服务端新建随访任务'
 ) {
   const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
-  return createConsultation({
-    family_id: familyId,
-    elderly_id: elderlyId,
-    consultation_type: consultationType,
-    scheduled_time: formatDateTimeValue(scheduledAt),
-    duration: 30,
-    note,
-    status: 'scheduled',
+  const data = await request<{ consultation_id: number }>('/service/followups', {
+    method: 'POST',
+    data: {
+      family_id: resolveFamilyId(familyId),
+      elderly_id: elderlyId,
+      consultation_type: consultationType,
+      scheduled_time: formatDateTimeValue(scheduledAt),
+      duration: 30,
+      note,
+      status: 'scheduled',
+    },
   });
+  return data.consultation_id;
 }
 
 export async function createServiceRecord(payload: {
@@ -257,21 +280,14 @@ export async function createServiceRecord(payload: {
   alertId?: number;
   content: string;
 }) {
-  const familyId = payload.familyId || DEFAULT_FAMILY_ID;
-  const now = new Date();
-  const consultationId = await createConsultation({
-    family_id: familyId,
-    elderly_id: payload.elderlyId,
-    consultation_type: 'text',
-    scheduled_time: formatDateTimeValue(now),
-    duration: 15,
-    note: payload.content,
-    status: 'completed',
+  const data = await request<{ consultation_id: number }>('/service/records', {
+    method: 'POST',
+    data: {
+      family_id: resolveFamilyId(payload.familyId || DEFAULT_FAMILY_ID),
+      elderly_id: payload.elderlyId,
+      alert_id: payload.alertId,
+      content: payload.content,
+    },
   });
-
-  if (payload.alertId) {
-    await handleAlert(payload.alertId, { reply_message: payload.content });
-  }
-
-  return consultationId;
+  return data.consultation_id;
 }

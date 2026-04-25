@@ -25,9 +25,11 @@ npm install
 
 ```bash
 TARO_APP_API_BASE_URL=http://127.0.0.1:8000/api
+TARO_APP_API_TOKEN=
 ```
 
 真机或正式环境不能直接访问 `127.0.0.1`，需要替换为微信小程序合法域名中配置过的后端地址。
+如果 Java 后端开启了 `kinecho.api-token-enabled`，这里的 `TARO_APP_API_TOKEN` 必须与后端 `kinecho.api-token` 一致。
 
 3. 构建微信小程序
 

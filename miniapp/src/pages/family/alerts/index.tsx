@@ -12,6 +12,7 @@ import {
   type FamilyAlert,
 } from '@/services/family';
 import { formatDateTimeText } from '@/utils/format';
+import { useNavigationMetrics } from '@/utils/navigation';
 
 type AlertTab = 'unread' | 'unhandled' | 'all';
 
@@ -28,6 +29,7 @@ function getTag(alert: FamilyAlert) {
 }
 
 export default function AlertsPage() {
+  const navigation = useNavigationMetrics();
   const [activeTab, setActiveTab] = useState<AlertTab>('unread');
   const [alerts, setAlerts] = useState<FamilyAlert[]>([]);
   const [stats, setStats] = useState({
@@ -111,7 +113,7 @@ export default function AlertsPage() {
 
   return (
     <View className='ff-page ff-page--tab'>
-      <View className='ff-topbar ff-topbar--sticky'>
+      <View className='ff-topbar ff-topbar--sticky' style={navigation.topbarStyle}>
         <View>
           <Text className='ff-topbar__title'>通知中心</Text>
           <Text className='ff-topbar__desc'>需要家属出手的事项会放在这里</Text>

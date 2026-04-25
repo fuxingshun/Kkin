@@ -29,6 +29,11 @@ public class KinEchoApiController {
         this.service = service;
     }
 
+    @PostMapping("/auth/login")
+    public ResponseEntity<Map<String, Object>> login(@RequestBody Map<String, Object> data) {
+        return service.login(data);
+    }
+
     @GetMapping("/family/schedules")
     public ResponseEntity<Map<String, Object>> getFamilySchedules(@RequestParam(required = false) String family_id) {
         return service.getFamilySchedules(family_id);
@@ -45,8 +50,9 @@ public class KinEchoApiController {
     }
 
     @DeleteMapping("/family/schedules/{scheduleId}")
-    public ResponseEntity<Map<String, Object>> deleteSchedule(@PathVariable long scheduleId) {
-        return service.deleteSchedule(scheduleId);
+    public ResponseEntity<Map<String, Object>> deleteSchedule(@PathVariable long scheduleId,
+                                                              @RequestParam(required = false) String family_id) {
+        return service.deleteSchedule(scheduleId, family_id);
     }
 
     @GetMapping("/family/alerts")
@@ -65,8 +71,9 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/family/alerts/{alertId}/read")
-    public ResponseEntity<Map<String, Object>> markAlertRead(@PathVariable long alertId) {
-        return service.markAlertRead(alertId);
+    public ResponseEntity<Map<String, Object>> markAlertRead(@PathVariable long alertId,
+                                                             @RequestParam(required = false) String family_id) {
+        return service.markAlertRead(alertId, family_id);
     }
 
     @PostMapping("/family/alerts/{alertId}/reply")
@@ -75,8 +82,9 @@ public class KinEchoApiController {
     }
 
     @DeleteMapping("/family/alerts/{alertId}")
-    public ResponseEntity<Map<String, Object>> deleteAlert(@PathVariable long alertId) {
-        return service.deleteAlert(alertId);
+    public ResponseEntity<Map<String, Object>> deleteAlert(@PathVariable long alertId,
+                                                           @RequestParam(required = false) String family_id) {
+        return service.deleteAlert(alertId, family_id);
     }
 
     @GetMapping("/family/alerts/stats")
@@ -95,8 +103,9 @@ public class KinEchoApiController {
     }
 
     @DeleteMapping("/family/messages/{messageId}")
-    public ResponseEntity<Map<String, Object>> deleteMessage(@PathVariable long messageId) {
-        return service.deleteMessage(messageId);
+    public ResponseEntity<Map<String, Object>> deleteMessage(@PathVariable long messageId,
+                                                             @RequestParam(required = false) String family_id) {
+        return service.deleteMessage(messageId, family_id);
     }
 
     @GetMapping("/elderly/messages")
@@ -208,13 +217,15 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/elderly/reminders/{reminderId}/complete")
-    public ResponseEntity<Map<String, Object>> completeReminder(@PathVariable long reminderId) {
-        return service.completeReminder(reminderId);
+    public ResponseEntity<Map<String, Object>> completeReminder(@PathVariable long reminderId,
+                                                                @RequestParam(required = false) String family_id) {
+        return service.completeReminder(reminderId, family_id);
     }
 
     @PostMapping("/elderly/reminders/{reminderId}/dismiss")
-    public ResponseEntity<Map<String, Object>> dismissReminder(@PathVariable long reminderId) {
-        return service.dismissReminder(reminderId);
+    public ResponseEntity<Map<String, Object>> dismissReminder(@PathVariable long reminderId,
+                                                               @RequestParam(required = false) String family_id) {
+        return service.dismissReminder(reminderId, family_id);
     }
 
     @PostMapping("/elderly/schedules/{scheduleId}/status")
@@ -227,9 +238,97 @@ public class KinEchoApiController {
         return service.createUser(data);
     }
 
+    @PutMapping("/users/{userId}")
+    public ResponseEntity<Map<String, Object>> updateUser(@PathVariable long userId, @RequestBody Map<String, Object> data) {
+        return service.updateUser(userId, data);
+    }
+
+    @DeleteMapping("/users/{userId}")
+    public ResponseEntity<Map<String, Object>> deleteUser(@PathVariable long userId,
+                                                          @RequestParam String family_id,
+                                                          @RequestParam(required = false) String operator) {
+        return service.deleteUser(userId, family_id, operator);
+    }
+
     @GetMapping("/users/{familyId}")
     public ResponseEntity<Map<String, Object>> getFamilyUsers(@PathVariable String familyId) {
         return service.getFamilyUsers(familyId);
+    }
+
+    @GetMapping("/users/{userId}/binding-code")
+    public ResponseEntity<Map<String, Object>> getUserBindingCode(@PathVariable long userId,
+                                                                  @RequestParam String family_id) {
+        return service.getUserBindingCode(userId, family_id);
+    }
+
+    @PostMapping("/users/bind-by-code")
+    public ResponseEntity<Map<String, Object>> bindFamilyByCode(@RequestBody Map<String, Object> data) {
+        return service.bindFamilyByCode(data);
+    }
+
+    @GetMapping("/service/overview")
+    public ResponseEntity<Map<String, Object>> getServiceOverview(@RequestParam(required = false) String family_id) {
+        return service.getServiceOverview(family_id);
+    }
+
+    @GetMapping("/service/tasks")
+    public ResponseEntity<Map<String, Object>> getServiceTasks(@RequestParam Map<String, String> params) {
+        return service.getServiceTasks(params);
+    }
+
+    @PostMapping("/service/tasks/{alertId}/start")
+    public ResponseEntity<Map<String, Object>> startServiceTask(@PathVariable long alertId) {
+        return service.startServiceTask(alertId);
+    }
+
+    @PostMapping("/service/tasks/{alertId}/complete")
+    public ResponseEntity<Map<String, Object>> completeServiceTask(@PathVariable long alertId,
+                                                                   @RequestBody(required = false) Map<String, Object> data) {
+        return service.completeServiceTask(alertId, data);
+    }
+
+    @GetMapping("/service/cases")
+    public ResponseEntity<Map<String, Object>> getServiceCases(@RequestParam(required = false) String family_id) {
+        return service.getServiceCases(family_id);
+    }
+
+    @GetMapping("/service/cases/{elderlyId}")
+    public ResponseEntity<Map<String, Object>> getServiceCaseDetail(@PathVariable long elderlyId,
+                                                                    @RequestParam(required = false) String family_id) {
+        return service.getServiceCaseDetail(family_id, elderlyId);
+    }
+
+    @GetMapping("/service/followups")
+    public ResponseEntity<Map<String, Object>> getServiceFollowups(@RequestParam Map<String, String> params) {
+        return service.getServiceFollowups(params);
+    }
+
+    @PostMapping("/service/followups")
+    public ResponseEntity<Map<String, Object>> createServiceFollowup(@RequestBody Map<String, Object> data) {
+        return service.createServiceFollowup(data);
+    }
+
+    @PutMapping("/service/followups/{consultationId}/status")
+    public ResponseEntity<Map<String, Object>> updateServiceFollowupStatus(@PathVariable long consultationId,
+                                                                           @RequestBody Map<String, Object> data) {
+        return service.updateServiceFollowupStatus(consultationId, data);
+    }
+
+    @PostMapping("/service/records")
+    public ResponseEntity<Map<String, Object>> createServiceRecord(@RequestBody Map<String, Object> data) {
+        return service.createServiceRecord(data);
+    }
+
+    @GetMapping("/admin/service-summary")
+    public ResponseEntity<Map<String, Object>> getAdminServiceSummary(@RequestParam(required = false) String family_id) {
+        return service.getAdminServiceSummary(family_id);
+    }
+
+    @GetMapping("/admin/analytics")
+    public ResponseEntity<Map<String, Object>> getAdminAnalytics(@RequestParam(required = false) String family_id,
+                                                                 @RequestParam(defaultValue = "6") int months,
+                                                                 @RequestParam(defaultValue = "7") int days) {
+        return service.getAdminAnalytics(family_id, months, days);
     }
 
     @GetMapping("/counselors")
@@ -267,8 +366,9 @@ public class KinEchoApiController {
     }
 
     @GetMapping("/family/media/{mediaId}")
-    public ResponseEntity<Map<String, Object>> getMediaDetail(@PathVariable long mediaId) {
-        return service.getMediaDetail(mediaId);
+    public ResponseEntity<Map<String, Object>> getMediaDetail(@PathVariable long mediaId,
+                                                              @RequestParam(required = false) String family_id) {
+        return service.getMediaDetail(mediaId, family_id);
     }
 
     @PutMapping("/family/media/{mediaId}")
@@ -277,8 +377,9 @@ public class KinEchoApiController {
     }
 
     @DeleteMapping("/family/media/{mediaId}")
-    public ResponseEntity<Map<String, Object>> deleteMedia(@PathVariable long mediaId) {
-        return service.deleteMedia(mediaId);
+    public ResponseEntity<Map<String, Object>> deleteMedia(@PathVariable long mediaId,
+                                                           @RequestParam(required = false) String family_id) {
+        return service.deleteMedia(mediaId, family_id);
     }
 
     @GetMapping("/elderly/media/recommended")

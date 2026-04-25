@@ -3,10 +3,14 @@ import Taro, { useDidShow } from '@tarojs/taro';
 import { Text, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
 import { getAlertStats, getFamilySchedules, getFamilyUsers, type FamilyUser, type Schedule } from '@/services/family';
+import { getFamilySession } from '@/utils/familySession';
+import { useNavigationMetrics } from '@/utils/navigation';
 
 type AlertStats = Awaited<ReturnType<typeof getAlertStats>>;
 
 export default function ProfilePage() {
+  const navigation = useNavigationMetrics();
+  const [familySession, setFamilySession] = useState(() => getFamilySession());
   const [users, setUsers] = useState<FamilyUser[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [alertStats, setAlertStats] = useState<AlertStats | null>(null);
@@ -28,6 +32,7 @@ export default function ProfilePage() {
   }, []);
 
   useDidShow(() => {
+    setFamilySession(getFamilySession());
     void loadData();
   });
 
@@ -48,6 +53,12 @@ export default function ProfilePage() {
   }
 
   const menu = [
+    {
+      title: '绑定老人',
+      desc: elderUser ? `已绑定 ${elderUser.name}` : (familySession.bindingCode ? `绑定码 ${familySession.bindingCode}` : '输入绑定码关联老人'),
+      icon: '码',
+      action: async () => Taro.navigateTo({ url: '/pages/family/bind-elderly/index' }),
+    },
     {
       title: '家庭成员',
       desc: `${users.length} 位成员共同照护`,
@@ -88,7 +99,7 @@ export default function ProfilePage() {
 
   return (
     <View className='ff-page ff-page--tab'>
-      <View className='ff-hero ff-hero--green ff-hero--profile'>
+      <View className='ff-hero ff-hero--green ff-hero--profile' style={navigation.heroStyle}>
         <View className='ff-profile-avatar'>{(primaryUser?.name || '家').slice(0, 1)}</View>
         <Text className='ff-hero__title'>{primaryUser?.name || '家庭账号'}</Text>
         <Text className='ff-hero__subtitle'>{elderUser ? `正在照护 ${elderUser.name}` : '当前家庭资料待补充'}</Text>

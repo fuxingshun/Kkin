@@ -23,6 +23,16 @@ kinecho:
   ai-audio-dir: server/uploads/ai-audio
   ai-voice-upload-dir: server/uploads/ai-voice
   seed-demo-data: true
+  api-token-enabled: false
+  api-token: ''
+  demo-login-password: '123456'
+  service-username: service
+  service-password: '123456'
+  service-family-id: family_001
+  service-display-name: 服务专员
+  admin-username: admin
+  admin-password: '123456'
+  admin-display-name: 平台管理员
   ai-chat-provider: bailian
   ai-audio-retention-count: 32
 

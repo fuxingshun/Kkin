@@ -1,6 +1,7 @@
 import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
 import { getUploadMediaUrl, getUploadThumbnailUrl } from '@/utils/media';
 import { buildQueryString, request } from '@/utils/request';
+import { getElderlySession } from '@/utils/session';
 
 export type MoodType = 'happy' | 'calm' | 'sad' | 'anxious' | 'angry' | 'tired';
 
@@ -33,7 +34,14 @@ export interface FamilyUser {
   name: string;
   phone?: string;
   family_id: string;
+  binding_code?: string;
+  is_active?: number;
+  created_by?: string;
+  updated_by?: string;
+  deleted_by?: string;
+  deleted_at?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface RecommendedMedia {
@@ -119,6 +127,13 @@ export interface MediaHistoryEntry {
   feedback_type?: 'like' | 'dislike' | null;
 }
 
+export interface BindingCodeInfo {
+  binding_code: string;
+  family_id: string;
+  elderly_id: number;
+  elderly_name?: string;
+}
+
 export const moodLabelMap: Record<MoodType, string> = {
   happy: '开心',
   calm: '平静',
@@ -145,13 +160,29 @@ export function getThumbnailUrl(thumbnailPath: string) {
   return getUploadThumbnailUrl(thumbnailPath);
 }
 
+function resolveFamilyId(familyId?: string) {
+  if (familyId && familyId.trim()) {
+    return familyId.trim();
+  }
+  return getElderlySession().familyId || DEFAULT_FAMILY_ID;
+}
+
+function resolveElderlyId(elderlyId?: number) {
+  if (typeof elderlyId === 'number' && Number.isFinite(elderlyId) && elderlyId > 0) {
+    return elderlyId;
+  }
+  return getElderlySession().elderlyId || DEFAULT_ELDERLY_ID;
+}
+
 export async function sendSOSAlert(familyId = DEFAULT_FAMILY_ID, elderlyId = DEFAULT_ELDERLY_ID) {
+  const resolvedFamilyId = resolveFamilyId(familyId);
+  const resolvedElderlyId = resolveElderlyId(elderlyId);
   const now = new Date();
   const data = await request<{ success?: boolean }>('/elderly/alerts', {
     method: 'POST',
     data: {
-      family_id: familyId,
-      elderly_id: elderlyId,
+      family_id: resolvedFamilyId,
+      elderly_id: resolvedElderlyId,
       alert_type: 'sos_emergency',
       level: 'high',
       title: '紧急求助',
@@ -169,12 +200,14 @@ export async function sendContactFamilyAlert(
   familyId = DEFAULT_FAMILY_ID,
   elderlyId = DEFAULT_ELDERLY_ID
 ) {
+  const resolvedFamilyId = resolveFamilyId(familyId);
+  const resolvedElderlyId = resolveElderlyId(elderlyId);
   const now = new Date();
   const data = await request<{ success?: boolean }>('/elderly/alerts', {
     method: 'POST',
     data: {
-      family_id: familyId,
-      elderly_id: elderlyId,
+      family_id: resolvedFamilyId,
+      elderly_id: resolvedElderlyId,
       alert_type: 'contact_family',
       level: 'medium',
       message: `老人希望家人联系自己（${now.toLocaleTimeString('zh-CN', {
@@ -188,12 +221,12 @@ export async function sendContactFamilyAlert(
 }
 
 export async function getTodaySchedules(familyId = DEFAULT_FAMILY_ID) {
-  const data = await request<{ schedules: Schedule[] }>(`/elderly/schedules/today?family_id=${familyId}`);
+  const data = await request<{ schedules: Schedule[] }>(`/elderly/schedules/today?family_id=${resolveFamilyId(familyId)}`);
   return data.schedules || [];
 }
 
 export async function getScheduleHistory(familyId = DEFAULT_FAMILY_ID, limit = 50) {
-  const params = buildQueryString({ family_id: familyId, limit });
+  const params = buildQueryString({ family_id: resolveFamilyId(familyId), limit });
   const data = await request<{ schedules: Schedule[] }>(`/elderly/schedules/history?${params}`);
   return data.schedules || [];
 }
@@ -201,24 +234,79 @@ export async function getScheduleHistory(familyId = DEFAULT_FAMILY_ID, limit = 5
 export async function updateScheduleStatus(scheduleId: number, status: NonNullable<Schedule['status']>) {
   const data = await request<{ success: boolean }>(`/elderly/schedules/${scheduleId}/status`, {
     method: 'POST',
-    data: { status },
+    data: {
+      family_id: resolveFamilyId(),
+      status,
+    },
   });
   return data.success;
 }
 
 export async function getFamilyUsers(familyId = DEFAULT_FAMILY_ID) {
-  const data = await request<{ users: FamilyUser[] }>(`/users/${familyId}`);
+  const data = await request<{ users: FamilyUser[] }>(`/users/${resolveFamilyId(familyId)}`);
   return data.users || [];
 }
 
+export async function createUser(payload: {
+  user_type: 'elderly' | 'family';
+  name: string;
+  phone?: string;
+  family_id: string;
+  created_by?: string;
+  updated_by?: string;
+  operator?: string;
+}) {
+  const data = await request<{ user_id: number }>('/users', {
+    method: 'POST',
+    data: {
+      ...payload,
+      family_id: resolveFamilyId(payload.family_id),
+    },
+  });
+  return data.user_id;
+}
+
+export async function updateUser(
+  userId: number,
+  payload: {
+    family_id: string;
+    name?: string;
+    phone?: string;
+    updated_by?: string;
+    operator?: string;
+  }
+) {
+  const data = await request<{ success: boolean }>(`/users/${userId}`, {
+    method: 'PUT',
+    data: {
+      ...payload,
+      family_id: resolveFamilyId(payload.family_id),
+    },
+  });
+  return data.success;
+}
+
+export async function deleteFamilyUser(userId: number, familyId = DEFAULT_FAMILY_ID, operator = 'elderly') {
+  const params = buildQueryString({ family_id: resolveFamilyId(familyId), operator });
+  const data = await request<{ success: boolean }>(`/users/${userId}?${params}`, {
+    method: 'DELETE',
+  });
+  return data.success;
+}
+
+export async function getUserBindingCode(userId: number, familyId = DEFAULT_FAMILY_ID) {
+  const params = buildQueryString({ family_id: resolveFamilyId(familyId) });
+  return request<BindingCodeInfo>(`/users/${userId}/binding-code?${params}`);
+}
+
 export async function getElderlyMessages(familyId = DEFAULT_FAMILY_ID) {
-  const data = await request<{ messages: ElderlyMessage[] }>(`/elderly/messages?family_id=${familyId}`);
+  const data = await request<{ messages: ElderlyMessage[] }>(`/elderly/messages?family_id=${resolveFamilyId(familyId)}`);
   return data.messages || [];
 }
 
 export async function getPendingMessages(familyId = DEFAULT_FAMILY_ID) {
   const data = await request<{ messages: ElderlyMessage[] }>(
-    `/elderly/messages/pending?family_id=${familyId}`
+    `/elderly/messages/pending?family_id=${resolveFamilyId(familyId)}`
   );
   return data.messages || [];
 }
@@ -250,8 +338,8 @@ export async function getRecommendedMedia(
   mood?: MoodType
 ) {
   const params = buildQueryString({
-    family_id: familyId,
-    elderly_id: String(elderlyId || DEFAULT_ELDERLY_ID),
+    family_id: resolveFamilyId(familyId),
+    elderly_id: String(resolveElderlyId(elderlyId)),
     mood,
   });
 
@@ -263,7 +351,7 @@ export async function recordMediaPlay(mediaId: number, elderlyId = DEFAULT_ELDER
   await request(`/elderly/media/${mediaId}/play`, {
     method: 'POST',
     data: {
-      elderly_id: elderlyId,
+      elderly_id: resolveElderlyId(elderlyId),
       triggered_by: 'manual',
       completed: 1,
     },
@@ -278,7 +366,7 @@ export async function submitMediaFeedback(
   await request(`/elderly/media/${mediaId}/feedback`, {
     method: 'POST',
     data: {
-      elderly_id: elderlyId,
+      elderly_id: resolveElderlyId(elderlyId),
       feedback_type: feedbackType,
     },
   });
@@ -286,7 +374,7 @@ export async function submitMediaFeedback(
 
 export async function getMediaHistory(elderlyId = DEFAULT_ELDERLY_ID, limit = 20) {
   const params = buildQueryString({
-    elderly_id: String(elderlyId),
+    elderly_id: String(resolveElderlyId(elderlyId)),
     limit: String(limit),
   });
 
@@ -318,8 +406,8 @@ export async function createMoodRecord(
   const data = await request<{ record_id: number }>('/elderly/moods', {
     method: 'POST',
     data: {
-      family_id: familyId,
-      elderly_id: elderlyId,
+      family_id: resolveFamilyId(familyId),
+      elderly_id: resolveElderlyId(elderlyId),
       mood_type: moodType,
       mood_score: options.moodScore ?? moodScoreMap[moodType],
       note: options.note || '',
@@ -339,12 +427,24 @@ export async function getMoodRecords(
   limit = 20
 ) {
   const params = buildQueryString({
-    family_id: familyId,
-    elderly_id: String(elderlyId),
+    family_id: resolveFamilyId(familyId),
+    elderly_id: String(resolveElderlyId(elderlyId)),
     limit: String(limit),
   });
 
   const data = await request<{ records: MoodRecord[]; total: number }>(`/elderly/moods?${params}`);
+  return data.records || [];
+}
+
+export async function getTodayMoodRecords(
+  familyId = DEFAULT_FAMILY_ID,
+  elderlyId = DEFAULT_ELDERLY_ID
+) {
+  const params = buildQueryString({
+    family_id: resolveFamilyId(familyId),
+    elderly_id: String(resolveElderlyId(elderlyId)),
+  });
+  const data = await request<{ records: MoodRecord[] }>(`/elderly/moods/today?${params}`);
   return data.records || [];
 }
 
@@ -353,7 +453,7 @@ export async function getLatestMood(
   elderlyId = DEFAULT_ELDERLY_ID
 ) {
   const data = await request<{ record: MoodRecord | null }>(
-    `/elderly/moods/latest?family_id=${familyId}&elderly_id=${elderlyId}`
+    `/elderly/moods/latest?family_id=${resolveFamilyId(familyId)}&elderly_id=${resolveElderlyId(elderlyId)}`
   );
   return data.record;
 }
@@ -369,8 +469,8 @@ export async function getConsultations(
   limit = 20
 ) {
   const params = buildQueryString({
-    family_id: familyId,
-    elderly_id: elderlyId,
+    family_id: resolveFamilyId(familyId),
+    elderly_id: elderlyId ? resolveElderlyId(elderlyId) : undefined,
     limit: String(limit),
   });
 
@@ -391,8 +491,8 @@ export async function createConsultation(payload: {
   const data = await request<{ consultation_id: number }>('/consultations', {
     method: 'POST',
     data: {
-      family_id: payload.family_id || DEFAULT_FAMILY_ID,
-      elderly_id: payload.elderly_id ?? DEFAULT_ELDERLY_ID,
+      family_id: resolveFamilyId(payload.family_id || DEFAULT_FAMILY_ID),
+      elderly_id: resolveElderlyId(payload.elderly_id),
       counselor_id: payload.counselor_id,
       consultation_type: payload.consultation_type,
       scheduled_time: payload.scheduled_time,

@@ -1,5 +1,5 @@
 import Taro from '@tarojs/taro';
-import { API_ORIGIN } from '@/config/runtime';
+import { getActiveApiOrigin } from '@/utils/request';
 
 const DEVTOOLS_LOCAL_ORIGIN = 'http://127.0.0.1:8000';
 
@@ -12,7 +12,7 @@ function isDevtools() {
 }
 
 export function getMiniappAssetOrigin() {
-  return isDevtools() ? DEVTOOLS_LOCAL_ORIGIN : API_ORIGIN;
+  return isDevtools() ? DEVTOOLS_LOCAL_ORIGIN : getActiveApiOrigin();
 }
 
 function getFileName(filePath: string) {
@@ -26,4 +26,3 @@ export function getUploadMediaUrl(filePath: string) {
 export function getUploadThumbnailUrl(thumbnailPath: string) {
   return `${getMiniappAssetOrigin()}/uploads/thumbnails/${getFileName(thumbnailPath)}`;
 }
-

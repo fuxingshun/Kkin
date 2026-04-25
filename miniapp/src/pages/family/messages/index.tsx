@@ -11,7 +11,9 @@ import {
   type FamilyMessage,
   type FamilyUser,
 } from '@/services/family';
+import { getFamilySession } from '@/utils/familySession';
 import { combineDateTime, formatDateTimeText, formatDateValue, formatRelativeTime, formatTimeValue } from '@/utils/format';
+import { useNavigationMetrics } from '@/utils/navigation';
 
 const tabs = [
   { key: 'all', label: '全部' },
@@ -29,11 +31,6 @@ function createDefaultSchedule() {
     dateValue: formatDateValue(next),
     timeValue: formatTimeValue(next),
   };
-}
-
-function getFamilySenders(users: FamilyUser[]) {
-  const familyUsers = users.filter((item) => item.user_type === 'family');
-  return familyUsers.length ? familyUsers : users;
 }
 
 function isFuture(value: string) {
@@ -67,6 +64,8 @@ function filterMessages(messages: FamilyMessage[], tab: MessageTab) {
 }
 
 export default function FamilyMessagesPage() {
+  const navigation = useNavigationMetrics();
+  const familySession = useMemo(() => getFamilySession(), []);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [messages, setMessages] = useState<FamilyMessage[]>([]);
@@ -74,7 +73,6 @@ export default function FamilyMessagesPage() {
   const [activeTab, setActiveTab] = useState<MessageTab>('all');
   const [composerOpen, setComposerOpen] = useState(false);
   const [content, setContent] = useState('');
-  const [senderIndex, setSenderIndex] = useState(0);
   const [dateValue, setDateValue] = useState(createDefaultSchedule().dateValue);
   const [timeValue, setTimeValue] = useState(createDefaultSchedule().timeValue);
 
@@ -101,8 +99,39 @@ export default function FamilyMessagesPage() {
     void loadData();
   });
 
-  const senders = useMemo(() => getFamilySenders(users), [users]);
-  const currentSender = senders[senderIndex] || senders[0] || null;
+  const currentSender = useMemo(() => {
+    const familyUsers = users.filter((item) => item.user_type === 'family');
+
+    if (familySession.familyUserId) {
+      const matched = familyUsers.find((item) => item.id === familySession.familyUserId);
+      if (matched) {
+        return matched;
+      }
+    }
+
+    if (familySession.familyName) {
+      const matched = familyUsers.find((item) => item.name === familySession.familyName);
+      if (matched) {
+        return matched;
+      }
+    }
+
+    if (familyUsers.length) {
+      return familyUsers[0];
+    }
+
+    if (familySession.familyName || familySession.familyId) {
+      return {
+        id: familySession.familyUserId || 0,
+        user_type: 'family',
+        name: familySession.familyName || '当前家属',
+        family_id: familySession.familyId || DEFAULT_FAMILY_ID,
+      } as FamilyUser;
+    }
+
+    return null;
+  }, [familySession.familyId, familySession.familyName, familySession.familyUserId, users]);
+  const currentSenderName = currentSender?.name || familySession.familyName || '当前登录家属';
   const visibleMessages = useMemo(() => filterMessages(messages, activeTab), [messages, activeTab]);
 
   async function handleCreate() {
@@ -114,9 +143,9 @@ export default function FamilyMessagesPage() {
     try {
       setSaving(true);
       await createMessage({
-        family_id: currentSender?.family_id || DEFAULT_FAMILY_ID,
+        family_id: currentSender?.family_id || familySession.familyId || DEFAULT_FAMILY_ID,
         content: content.trim(),
-        sender_name: currentSender?.name || '家属',
+        sender_name: currentSenderName,
         sender_relation: '家属',
         scheduled_time: combineDateTime(dateValue, timeValue),
       });
@@ -141,10 +170,10 @@ export default function FamilyMessagesPage() {
       next.setMinutes(next.getMinutes() + 5);
 
       await createMessage({
-        family_id: item.family_id || DEFAULT_FAMILY_ID,
+        family_id: currentSender?.family_id || familySession.familyId || item.family_id || DEFAULT_FAMILY_ID,
         content: item.content,
-        sender_name: item.sender_name,
-        sender_relation: item.sender_relation || '家属',
+        sender_name: currentSenderName,
+        sender_relation: '家属',
         scheduled_time: combineDateTime(formatDateValue(next), formatTimeValue(next)),
       });
       Taro.showToast({ title: '已加入待播报队列', icon: 'success' });
@@ -177,7 +206,7 @@ export default function FamilyMessagesPage() {
 
   return (
     <View className='ff-page ff-page--tab'>
-      <View className='ff-topbar ff-topbar--sticky'>
+      <View className='ff-topbar ff-topbar--sticky' style={navigation.topbarStyle}>
         <View>
           <Text className='ff-topbar__title'>留言管理</Text>
           <Text className='ff-topbar__desc'>安排家人的问候，按计划播报给老人</Text>
@@ -211,14 +240,8 @@ export default function FamilyMessagesPage() {
             <View className='ke-form'>
               <View>
                 <Text className='ke-label'>留言人</Text>
-                <Picker
-                  mode='selector'
-                  range={senders.map((item) => item.name)}
-                  value={Math.min(senderIndex, Math.max(senders.length - 1, 0))}
-                  onChange={(event) => setSenderIndex(Number(event.detail.value))}
-                >
-                  <View className='ke-input'>{currentSender?.name || '默认家属'}</View>
-                </Picker>
+                <View className='ke-input ff-readonly-input'>{currentSenderName}</View>
+                <Text className='ff-form-caption'>留言会以当前登录家属身份发送，不支持切换成其他家属。</Text>
               </View>
               <View>
                 <Text className='ke-label'>播报日期</Text>
@@ -242,12 +265,12 @@ export default function FamilyMessagesPage() {
                   onInput={(event) => setContent(event.detail.value)}
                 />
               </View>
-              <View className='ke-form__row'>
-                <Button className='ke-button--ghost' onClick={() => setComposerOpen(false)}>
+              <View className='ff-form-actions'>
+                <Button className='ff-form-button ff-form-button--ghost' onClick={() => setComposerOpen(false)}>
                   取消
                 </Button>
-                <Button className='service-button service-button--primary' loading={saving} onClick={() => void handleCreate()}>
-                  保存安排
+                <Button className='ff-form-button ff-form-button--primary' loading={saving} onClick={() => void handleCreate()}>
+                  发送留言
                 </Button>
               </View>
             </View>

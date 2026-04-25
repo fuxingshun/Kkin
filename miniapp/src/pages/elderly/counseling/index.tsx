@@ -8,6 +8,7 @@ import {
   type Consultation,
   type Counselor,
 } from '@/services/elderly';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { formatDateTimeText, formatDateTimeValue } from '@/utils/format';
 import { getElderlySession } from '@/utils/session';
 
@@ -32,6 +33,7 @@ function getTypeLabel(type: string) {
 }
 
 export default function ElderlyCounselingPage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const { familyId, elderlyId } = getElderlySession();
   const [counselors, setCounselors] = useState<Counselor[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
@@ -79,11 +81,13 @@ export default function ElderlyCounselingPage() {
     }
   }
 
+  const completedConsultations = consultations.filter((item) => item.status === 'completed').length;
+
   return (
-    <View className='ef-page ef-page--sub'>
+    <View className={`ef-page ef-page--sub ${preferenceClassName}`}>
       <View className='ef-topbar ef-topbar--sticky'>
         <Text className='ef-topbar__back' onClick={() => Taro.redirectTo({ url: '/pages/elderly/home/index' })}>〈</Text>
-        <Text className='ef-topbar__title'>心理咨询</Text>
+        <Text className='ef-topbar__title'>心理咨询服务</Text>
       </View>
 
       <View className='ef-counseling-content'>
@@ -92,13 +96,13 @@ export default function ElderlyCounselingPage() {
             <View className='ef-consult-icon'>心</View>
             <View>
               <Text className='ef-consult-title'>专业心理咨询服务</Text>
-              <Text className='ef-consult-desc'>咨询师、预约与记录都从数据库同步，家属端也可以查看协同状态</Text>
+              <Text className='ef-consult-desc'>提供7×24小时专业心理咨询服务，资深咨询师团队随时为您提供支持</Text>
             </View>
           </View>
           <View className='ef-consult-stats'>
-            <View><Text>{counselors.length || 0}</Text><Text>咨询师</Text></View>
-            <View><Text>{consultations.length}</Text><Text>咨询记录</Text></View>
-            <View><Text>隐私</Text><Text>加密保护</Text></View>
+            <View><Text>{consultations.length}</Text><Text>咨询次数</Text></View>
+            <View><Text>{completedConsultations}</Text><Text>服务完成</Text></View>
+            <View><Text>100%</Text><Text>满意度</Text></View>
           </View>
         </View>
 
@@ -188,10 +192,10 @@ export default function ElderlyCounselingPage() {
         </View>
 
         <View className='ef-warning-note'>
-          <Text className='ef-card-title'>温馨提示</Text>
-          <Text>· 咨询师会严格保护您的隐私</Text>
-          <Text>· 建议选择安静舒适的环境进行咨询</Text>
-          <Text>· 如需紧急帮助，请直接拨打紧急联系人电话</Text>
+          <Text className='ef-card-title'>服务说明</Text>
+          <Text>· 咨询师严格遵守职业道德，保护您的隐私安全</Text>
+          <Text>· 建议在安静舒适的环境中进行咨询，确保通话质量</Text>
+          <Text>· 所有咨询记录将自动保存，可随时在个人中心查看</Text>
         </View>
       </View>
     </View>

@@ -1,6 +1,7 @@
 export default definePageConfig({
   navigationBarTitleText: '老人首页',
-  navigationBarBackgroundColor: '#8B95FF',
+  navigationBarBackgroundColor: '#5B6FD8',
   navigationBarTextStyle: 'white',
+  navigationStyle: 'custom',
   enablePullDownRefresh: true,
 });

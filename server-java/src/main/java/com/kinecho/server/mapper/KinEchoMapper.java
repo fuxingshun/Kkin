@@ -43,6 +43,7 @@ public class KinEchoMapper {
 
     public void initialize() {
         createTables();
+        migrateSchema();
         createIndexes();
         if (properties.seedDemoData) {
             seedDemoData();
@@ -300,9 +301,16 @@ public class KinEchoMapper {
                 name %s NOT NULL,
                 phone %s,
                 family_id %s,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                binding_code %s,
+                is_active %s DEFAULT 1,
+                created_by %s,
+                updated_by %s,
+                deleted_by %s,
+                deleted_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            """.formatted(id, varchar32, text, varchar64, varchar64));
+            """.formatted(id, varchar32, text, varchar64, varchar64, varchar32, integer, varchar64, varchar64, varchar64));
 
         jdbc.execute("""
             CREATE TABLE IF NOT EXISTS ai_interactions (
@@ -508,7 +516,181 @@ public class KinEchoMapper {
             """.formatted(id, varchar64, integer, integer, varchar64, integer, varchar64, text));
     }
 
+    private void migrateSchema() {
+        String integer = isMysql() ? "INT" : "INTEGER";
+        String bigInt = isMysql() ? "BIGINT" : "INTEGER";
+        String varchar32 = isMysql() ? "VARCHAR(32)" : "TEXT";
+        String varchar64 = isMysql() ? "VARCHAR(64)" : "TEXT";
+        String text = "TEXT";
+
+        migrateColumns("users", List.of(
+            "is_active " + integer + " DEFAULT 1",
+            "binding_code " + varchar32,
+            "created_by " + varchar64,
+            "updated_by " + varchar64,
+            "deleted_by " + varchar64,
+            "deleted_at TIMESTAMP",
+            "updated_at TIMESTAMP"
+        ));
+        migrateColumns("ai_interactions", List.of(
+            "way " + varchar64 + " DEFAULT 'speak'",
+            "timetext " + text,
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("schedules", List.of(
+            "description " + text,
+            "schedule_type " + varchar64,
+            "repeat_type " + varchar64 + " DEFAULT 'once'",
+            "repeat_days " + text,
+            "status " + varchar64 + " DEFAULT 'pending'",
+            "completed_at TIMESTAMP",
+            "auto_remind " + integer + " DEFAULT 1",
+            "is_active " + integer + " DEFAULT 1",
+            "created_by " + varchar64,
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("reminders", List.of(
+            "status " + varchar64 + " DEFAULT 'pending'",
+            "completed_at TIMESTAMP"
+        ));
+        migrateColumns("media", List.of(
+            "description " + text,
+            "file_size " + bigInt,
+            "duration " + integer,
+            "thumbnail_path " + text,
+            "uploaded_by " + bigInt,
+            "is_active " + integer + " DEFAULT 1",
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("media_policies", List.of(
+            "time_windows " + text,
+            "moods " + text,
+            "occasions " + text,
+            "cooldown " + integer + " DEFAULT 60",
+            "priority " + integer + " DEFAULT 5",
+            "last_played_at TIMESTAMP",
+            "play_count " + integer + " DEFAULT 0",
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("media_play_history", List.of(
+            "duration_watched " + integer,
+            "completed " + integer + " DEFAULT 0",
+            "triggered_by " + varchar64,
+            "mood_before " + text,
+            "mood_after " + text
+        ));
+        migrateColumns("family_messages", List.of(
+            "played " + integer + " DEFAULT 0",
+            "played_at TIMESTAMP",
+            "liked " + integer + " DEFAULT 0",
+            "is_active " + integer + " DEFAULT 1",
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("family_alerts", List.of(
+            "elderly_id " + bigInt,
+            "title " + text,
+            "metadata " + text,
+            "source " + varchar64 + " DEFAULT 'elderly'",
+            "handled " + integer + " DEFAULT 0",
+            "handled_at TIMESTAMP",
+            "handled_by " + varchar64,
+            "reply_message " + text,
+            readColumn() + " " + integer + " DEFAULT 0",
+            "read_at TIMESTAMP",
+            "is_active " + integer + " DEFAULT 1",
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("mood_records", List.of(
+            "elderly_id " + bigInt,
+            "mood_score " + integer + " DEFAULT 5",
+            "note " + text,
+            "source " + varchar64 + " DEFAULT 'manual'",
+            "trigger_event " + text,
+            "location " + text,
+            "weather " + text,
+            "recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("counselors", List.of(
+            "experience " + text,
+            "specialty " + text,
+            "rating " + text,
+            "avatar " + text,
+            "available " + integer + " DEFAULT 1",
+            "is_active " + integer + " DEFAULT 1",
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("consultations", List.of(
+            "elderly_id " + bigInt,
+            "counselor_id " + bigInt,
+            "consultation_type " + varchar64 + " DEFAULT 'phone'",
+            "duration " + integer + " DEFAULT 45",
+            "status " + varchar64 + " DEFAULT 'scheduled'",
+            "note " + text,
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("media_feedback", List.of(
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+
+        safeUpdate("UPDATE users SET is_active = 1 WHERE is_active IS NULL");
+        safeUpdate("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL");
+        safeUpdate("UPDATE ai_interactions SET way = 'speak' WHERE way IS NULL");
+        safeUpdate("UPDATE schedules SET repeat_type = 'once' WHERE repeat_type IS NULL OR repeat_type = ''");
+        safeUpdate("UPDATE schedules SET status = 'pending' WHERE status IS NULL OR status = ''");
+        safeUpdate("UPDATE schedules SET auto_remind = 1 WHERE auto_remind IS NULL");
+        safeUpdate("UPDATE schedules SET is_active = 1 WHERE is_active IS NULL");
+        safeUpdate("UPDATE schedules SET updated_at = created_at WHERE updated_at IS NULL");
+        safeUpdate("UPDATE reminders SET status = 'pending' WHERE status IS NULL OR status = ''");
+        safeUpdate("UPDATE media SET is_active = 1 WHERE is_active IS NULL");
+        safeUpdate("UPDATE media SET updated_at = created_at WHERE updated_at IS NULL");
+        safeUpdate("UPDATE media_policies SET cooldown = 60 WHERE cooldown IS NULL");
+        safeUpdate("UPDATE media_policies SET priority = 5 WHERE priority IS NULL");
+        safeUpdate("UPDATE media_policies SET play_count = 0 WHERE play_count IS NULL");
+        safeUpdate("UPDATE media_policies SET updated_at = created_at WHERE updated_at IS NULL");
+        safeUpdate("UPDATE family_messages SET played = 0 WHERE played IS NULL");
+        safeUpdate("UPDATE family_messages SET liked = 0 WHERE liked IS NULL");
+        safeUpdate("UPDATE family_messages SET is_active = 1 WHERE is_active IS NULL");
+        safeUpdate("UPDATE family_messages SET updated_at = created_at WHERE updated_at IS NULL");
+        safeUpdate("UPDATE family_alerts SET source = 'elderly' WHERE source IS NULL OR source = ''");
+        safeUpdate("UPDATE family_alerts SET handled = 0 WHERE handled IS NULL");
+        safeUpdate("UPDATE family_alerts SET %s = 0 WHERE %s IS NULL".formatted(readColumn(), readColumn()));
+        safeUpdate("UPDATE family_alerts SET is_active = 1 WHERE is_active IS NULL");
+        safeUpdate("UPDATE family_alerts SET updated_at = created_at WHERE updated_at IS NULL");
+        safeUpdate("UPDATE mood_records SET mood_score = 5 WHERE mood_score IS NULL");
+        safeUpdate("UPDATE mood_records SET source = 'manual' WHERE source IS NULL OR source = ''");
+        safeUpdate("UPDATE mood_records SET recorded_at = created_at WHERE recorded_at IS NULL");
+        safeUpdate("UPDATE counselors SET available = 1 WHERE available IS NULL");
+        safeUpdate("UPDATE counselors SET is_active = 1 WHERE is_active IS NULL");
+        safeUpdate("UPDATE counselors SET updated_at = created_at WHERE updated_at IS NULL");
+        safeUpdate("UPDATE consultations SET consultation_type = 'phone' WHERE consultation_type IS NULL OR consultation_type = ''");
+        safeUpdate("UPDATE consultations SET duration = 45 WHERE duration IS NULL");
+        safeUpdate("UPDATE consultations SET status = 'scheduled' WHERE status IS NULL OR status = ''");
+        safeUpdate("UPDATE consultations SET updated_at = created_at WHERE updated_at IS NULL");
+    }
+
+    private void migrateColumns(String table, List<String> definitions) {
+        for (String definition : definitions) {
+            addColumn(table, definition);
+        }
+    }
+
+    private void addColumn(String table, String definition) {
+        try {
+            jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + definition);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void safeUpdate(String sql) {
+        try {
+            jdbc.update(sql);
+        } catch (Exception ignored) {
+        }
+    }
+
     private void createIndexes() {
+        createIndex("idx_users_family_active", "users", "family_id, is_active, user_type");
+        createIndex("idx_users_binding_code", "users", "binding_code");
         createIndex("idx_mood_records_family_id", "mood_records", "family_id");
         createIndex("idx_mood_records_elderly_id", "mood_records", "elderly_id");
         createIndex("idx_mood_records_recorded_at", "mood_records", "recorded_at DESC");
@@ -527,7 +709,7 @@ public class KinEchoMapper {
 
     private void seedDemoData() {
         String familyId = "family_001";
-        if (count("SELECT COUNT(*) FROM users WHERE family_id = ?", familyId) == 0) {
+        if (count("SELECT COUNT(*) FROM users WHERE family_id = ? AND is_active = 1", familyId) == 0) {
             insert("INSERT INTO users (user_type, name, phone, family_id) VALUES (?, ?, ?, ?)", "elderly", "张翠芬", "13800138000", familyId);
             insert("INSERT INTO users (user_type, name, phone, family_id) VALUES (?, ?, ?, ?)", "family", "李小雨", "13800135678", familyId);
             insert("INSERT INTO users (user_type, name, phone, family_id) VALUES (?, ?, ?, ?)", "family", "张明", "13900139012", familyId);

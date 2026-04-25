@@ -63,13 +63,20 @@ export default function ServiceCaseDetailPage() {
       return;
     }
 
-    const result = await Taro.showModal({
+    type EditableModalResult = Awaited<ReturnType<typeof Taro.showModal>> & { content?: string };
+    type EditableModalOptions = Parameters<typeof Taro.showModal>[0] & {
+      editable: boolean;
+      placeholderText: string;
+    };
+
+    const result = (await Taro.showModal({
       title: '创建服务记录',
       editable: true,
       placeholderText: '输入本次处理或随访摘要',
-    } as any);
+    } as EditableModalOptions)) as EditableModalResult;
+    const content = typeof result.content === 'string' ? result.content.trim() : '';
 
-    if (!result.confirm || !result.content?.trim()) {
+    if (!result.confirm || !content) {
       return;
     }
 
@@ -77,10 +84,10 @@ export default function ServiceCaseDetailPage() {
       await createServiceRecord({
         elderlyId,
         alertId: alertId || undefined,
-        content: result.content.trim(),
+        content,
       });
       if (alertId) {
-        await completeServiceTask(alertId, result.content.trim());
+        await completeServiceTask(alertId, content);
       }
       Taro.showToast({ title: '服务记录已保存', icon: 'success' });
       await loadData();

@@ -4,6 +4,7 @@ import { Image, Text, View } from '@tarojs/components';
 import { EmptyState } from '@/components/EmptyState';
 import { SectionCard } from '@/components/SectionCard';
 import { getMediaHistory, getMediaUrl, getThumbnailUrl, type MediaHistoryEntry } from '@/services/elderly';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { formatDateTimeText, formatDurationSeconds } from '@/utils/format';
 import { getElderlySession } from '@/utils/session';
 
@@ -20,6 +21,7 @@ function getFeedbackLabel(feedbackType?: MediaHistoryEntry['feedback_type']) {
 }
 
 export default function ElderlyMediaHistoryPage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const { elderlyId, elderName } = getElderlySession();
   const [loading, setLoading] = useState(true);
   const [historyList, setHistoryList] = useState<MediaHistoryEntry[]>([]);
@@ -61,7 +63,7 @@ export default function ElderlyMediaHistoryPage() {
   }, [historyList]);
 
   return (
-    <View className='ke-page ke-page--compact'>
+    <View className={`ke-page ke-page--compact ${preferenceClassName}`}>
       <View className='ke-hero'>
         <Text className='ke-eyebrow'>Viewing History</Text>
         <Text className='ke-title'>{elderName}最近看过什么</Text>

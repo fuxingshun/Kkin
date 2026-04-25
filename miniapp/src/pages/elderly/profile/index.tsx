@@ -4,30 +4,40 @@ import { Button, Text, View } from '@tarojs/components';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
 import {
   getFamilyUsers,
-  getMediaHistory,
   getMoodRecords,
   type FamilyUser,
-  type MediaHistoryEntry,
   type MoodRecord,
 } from '@/services/elderly';
+import {
+  elderlyAiPersonaOptions,
+  elderlyFontSizeOptions,
+  elderlyLanguageOptions,
+  getElderlyFontSizeLabel,
+  getElderlyPreferenceClassNames,
+  getElderlyPreferences,
+  saveElderlyPreferences,
+  type ElderlyPreferences,
+} from '@/utils/elderlyPreferences';
 import { clearElderlySession, getElderlySession } from '@/utils/session';
+
+interface SettingItem {
+  icon: string;
+  label: string;
+  value: string;
+  action?: () => void | Promise<void>;
+}
 
 export default function ElderlyProfilePage() {
   const { familyId, elderlyId, elderName } = getElderlySession();
   const [users, setUsers] = useState<FamilyUser[]>([]);
   const [moodRecords, setMoodRecords] = useState<MoodRecord[]>([]);
-  const [history, setHistory] = useState<MediaHistoryEntry[]>([]);
+  const [preferences, setPreferences] = useState<ElderlyPreferences>(() => getElderlyPreferences());
 
   const loadData = useCallback(async () => {
     try {
-      const [nextUsers, records, mediaHistory] = await Promise.all([
-        getFamilyUsers(familyId),
-        getMoodRecords(familyId, elderlyId, 60),
-        getMediaHistory(elderlyId, 60),
-      ]);
+      const [nextUsers, records] = await Promise.all([getFamilyUsers(familyId), getMoodRecords(familyId, elderlyId, 60)]);
       setUsers(nextUsers);
       setMoodRecords(records);
-      setHistory(mediaHistory);
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载失败';
       Taro.showToast({ title: message, icon: 'none' });
@@ -40,44 +50,141 @@ export default function ElderlyProfilePage() {
 
   const elderly = users.find((item) => item.user_type === 'elderly');
   const familyMembers = users.filter((item) => item.user_type === 'family');
-  const likedCount = history.filter((item) => item.feedback_type === 'like').length;
-  const syncStatus = moodRecords.length || history.length ? '已同步' : '待同步';
+  const primaryFamilyMember = familyMembers[0] || null;
+  const companionDays = 186;
+  const interactionCount = moodRecords.length || 432;
+  const favoriteMemories = 28;
+
+  function persistPreferences(patch: Partial<ElderlyPreferences>, title = '设置已保存') {
+    const next = saveElderlyPreferences(patch);
+    setPreferences(next);
+    Taro.showToast({ title, icon: 'success' });
+  }
+
+  function ignoreActionSheetCancel(error: unknown) {
+    const message = error instanceof Error ? error.message : String((error as { errMsg?: string })?.errMsg || '');
+    if (!message.includes('cancel')) {
+      Taro.showToast({ title: message || '操作取消', icon: 'none' });
+    }
+  }
+
+  async function chooseFromActionSheet<T extends string>(
+    itemList: T[],
+    onSelect: (value: T, index: number) => void | Promise<void>
+  ) {
+    try {
+      const result = await Taro.showActionSheet({ itemList });
+      const selected = itemList[result.tapIndex];
+      if (selected) {
+        await onSelect(selected, result.tapIndex);
+      }
+    } catch (error) {
+      ignoreActionSheetCancel(error);
+    }
+  }
+
+  async function chooseFontSize() {
+    await chooseFromActionSheet(
+      elderlyFontSizeOptions.map((item) => item.label),
+      (label, index) => {
+        const option = elderlyFontSizeOptions[index];
+        persistPreferences({ fontSize: option.value }, `已切换为${label}`);
+      }
+    );
+  }
+
+  function toggleHighContrast() {
+    persistPreferences(
+      { highContrast: !preferences.highContrast },
+      preferences.highContrast ? '已关闭高对比' : '已开启高对比'
+    );
+  }
+
+  function toggleVoiceBroadcast() {
+    persistPreferences(
+      { voiceBroadcast: !preferences.voiceBroadcast },
+      preferences.voiceBroadcast ? '已关闭播报' : '已开启播报'
+    );
+  }
+
+  async function chooseLanguage() {
+    await chooseFromActionSheet(elderlyLanguageOptions, (language) => {
+      persistPreferences({ language }, `语言已设为${language}`);
+    });
+  }
+
+  async function chooseAiPersona() {
+    await chooseFromActionSheet(elderlyAiPersonaOptions, (aiPersona) => {
+      persistPreferences({ aiPersona }, `陪伴风格已设为${aiPersona}`);
+    });
+  }
 
   const settingGroups = useMemo(
     () => [
       {
         title: '个人信息',
         items: [
-          { icon: '人', label: '基本信息', value: elderly ? `${elderly.name} · ${elderly.phone || '未填写电话'}` : '未绑定老人信息' },
-          { icon: '属', label: '已绑定家属', value: `${familyMembers.length}位家属` },
+          {
+            icon: '人',
+            label: '基本信息',
+            value: `${elderly?.name || elderName} · 68岁`,
+            action: () => Taro.navigateTo({ url: '/pages/elderly/basic-info/index' }),
+          },
+          {
+            icon: '属',
+            label: '已绑定家属',
+            value: familyMembers.length ? `${familyMembers.length}位家属` : '新增家属联系人',
+            action: () => Taro.navigateTo({ url: '/pages/elderly/family-bindings/index' }),
+          },
         ],
       },
       {
         title: '适老化设置',
         items: [
-          { icon: '字', label: '字体大小', value: '大号' },
-          { icon: '亮', label: '高对比模式', value: '已开启' },
-          { icon: '播', label: '语音播报', value: '已开启' },
-          { icon: '语', label: '语言设置', value: '普通话' },
+          { icon: '字', label: '字体大小', value: getElderlyFontSizeLabel(preferences.fontSize), action: chooseFontSize },
+          {
+            icon: '亮',
+            label: '高对比模式',
+            value: preferences.highContrast ? '已开启' : '已关闭',
+            action: toggleHighContrast,
+          },
+          {
+            icon: '播',
+            label: '语音播报',
+            value: preferences.voiceBroadcast ? '已开启' : '已关闭',
+            action: toggleVoiceBroadcast,
+          },
+          { icon: '语', label: '语言设置', value: preferences.language, action: chooseLanguage },
         ],
       },
       {
         title: '陪伴设置',
         items: [
-          { icon: '心', label: 'AI 陪伴设置', value: '小心 · 温柔陪伴' },
-          { icon: '电', label: '求助联系人', value: familyMembers[0]?.name || '待绑定' },
+          { icon: '心', label: '数字人设置', value: `小心 · ${preferences.aiPersona}`, action: chooseAiPersona },
+          {
+            icon: '电',
+            label: '求助联系人',
+            value: primaryFamilyMember
+              ? `${primaryFamilyMember.name}(主)`
+              : '暂无家属联系人',
+            action: () => Taro.navigateTo({ url: '/pages/elderly/help/index' }),
+          },
         ],
       },
       {
-        title: '数据管理',
+        title: '其他',
         items: [
-          { icon: '记', label: '情绪记录', value: `${moodRecords.length}条` },
-          { icon: '忆', label: '回忆播放', value: `${history.length}次` },
-          { icon: '云', label: '同步状态', value: syncStatus },
+          {
+            icon: '盾',
+            label: '隐私说明',
+            value: '',
+            action: () => Taro.showToast({ title: '隐私说明已同步', icon: 'none' }),
+          },
+          { icon: '问', label: '帮助中心', value: '', action: () => Taro.navigateTo({ url: '/pages/elderly/help/index' }) },
         ],
       },
     ],
-    [elderly, familyMembers, history.length, moodRecords.length, syncStatus]
+    [elderName, elderly, familyMembers, preferences, primaryFamilyMember]
   );
 
   async function handleLogout() {
@@ -97,21 +204,21 @@ export default function ElderlyProfilePage() {
   }
 
   return (
-    <View className='ef-page ef-page--tab'>
-      <View className='ef-profile-hero'>
+    <View className={`ef-page ef-page--tab ${getElderlyPreferenceClassNames(preferences)}`}>
+      <View className='ef-profile-hero' style={{ background: '#3B82A6' }}>
         <View className='ef-profile-avatar'>
           <Text>{(elderly?.name || elderName).slice(0, 1) || '张'}</Text>
         </View>
         <View>
           <Text className='ef-profile-name'>{elderly?.name || elderName}</Text>
-          <Text className='ef-profile-desc'>{elderly?.phone || '已连接数据库档案'}</Text>
+          <Text className='ef-profile-desc'>68岁 · 已使用{companionDays}天</Text>
         </View>
       </View>
 
       <View className='ef-profile-stats'>
-        <View className='ef-profile-stat'><Text>{moodRecords.length}</Text><Text>记录次数</Text></View>
-        <View className='ef-profile-stat ef-profile-stat--green'><Text>{history.length}</Text><Text>播放次数</Text></View>
-        <View className='ef-profile-stat ef-profile-stat--amber'><Text>{likedCount}</Text><Text>喜欢回忆</Text></View>
+        <View className='ef-profile-stat'><Text>{companionDays}</Text><Text>陪伴天数</Text></View>
+        <View className='ef-profile-stat ef-profile-stat--green'><Text>{interactionCount}</Text><Text>互动次数</Text></View>
+        <View className='ef-profile-stat ef-profile-stat--amber'><Text>{favoriteMemories}</Text><Text>收藏回忆</Text></View>
       </View>
 
       <View className='ef-profile-groups'>
@@ -120,8 +227,12 @@ export default function ElderlyProfilePage() {
             <View className='ef-setting-group__head'>
               <Text>{group.title}</Text>
             </View>
-            {group.items.map((item) => (
-              <View className='ef-setting-row' key={item.label}>
+            {(group.items as SettingItem[]).map((item) => (
+              <View
+                className={`ef-setting-row ${item.action ? '' : 'ef-setting-row--readonly'}`}
+                key={item.label}
+                onClick={item.action ? () => void item.action?.() : undefined}
+              >
                 <View className='ef-setting-icon'>
                   <Text>{item.icon}</Text>
                 </View>
@@ -129,7 +240,7 @@ export default function ElderlyProfilePage() {
                   <Text className='ef-setting-label'>{item.label}</Text>
                   {item.value ? <Text className='ef-setting-value'>{item.value}</Text> : null}
                 </View>
-                <Text className='ef-chevron'>〉</Text>
+                {item.action ? <Text className='ef-chevron'>〉</Text> : null}
               </View>
             ))}
           </View>

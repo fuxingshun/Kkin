@@ -1,5 +1,5 @@
-import { API_ORIGIN, DEFAULT_CHAT_USERNAME } from '@/config/runtime';
-import { request, uploadFile } from '@/utils/request';
+import { DEFAULT_CHAT_USERNAME } from '@/config/runtime';
+import { getActiveApiOrigin, request, uploadFile } from '@/utils/request';
 
 export interface AiSpeakResult {
   success?: boolean;
@@ -47,7 +47,7 @@ function toAbsoluteUrl(url: string | undefined) {
     return value;
   }
 
-  return `${API_ORIGIN}${value.startsWith('/') ? '' : '/'}${value}`;
+  return `${getActiveApiOrigin()}${value.startsWith('/') ? '' : '/'}${value}`;
 }
 
 function normalizeSpeakResult(data: AiActionResponse): AiSpeakResult {

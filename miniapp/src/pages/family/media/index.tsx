@@ -3,10 +3,12 @@ import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Image, Text, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
 import { DEFAULT_FAMILY_ID } from '@/config/runtime';
+import { memoryCategoryOptions } from '@/constants/mediaCategories';
 import {
   getFamilyMedia,
   getMediaUrl,
   getThumbnailUrl,
+  updateMedia,
   uploadMedia,
   type Media,
 } from '@/services/family';
@@ -76,13 +78,22 @@ export default function FamilyMediaPage() {
 
       const inputValue = (modal as { content?: string }).content?.trim();
       const fallbackTitle = target.fileType === 'video' ? '新视频回忆' : '新照片回忆';
+      const categoryChooser = await Taro.showActionSheet({
+        itemList: [...memoryCategoryOptions],
+      });
+      const selectedCategory = memoryCategoryOptions[categoryChooser.tapIndex];
 
       setUploading(true);
-      await uploadMedia({
+      const uploadResult = await uploadMedia({
         filePath: target.tempFilePath,
         family_id: DEFAULT_FAMILY_ID,
         title: inputValue || fallbackTitle,
       });
+      if (uploadResult.media_id && selectedCategory) {
+        await updateMedia(uploadResult.media_id, {
+          tags: [selectedCategory],
+        });
+      }
       Taro.showToast({ title: '上传成功', icon: 'success' });
       await loadData();
     } catch (error) {
@@ -160,7 +171,7 @@ export default function FamilyMediaPage() {
                 </View>
                 <View className='ff-memory-card__body'>
                   <Text>{item.title}</Text>
-                  <Text>{item.media_type === 'video' ? '视频' : '图片'} · 已播放 {item.play_count} 次</Text>
+                  <Text>{item.media_type === 'video' ? '视频' : '图片'} · {item.tags?.[0] || '未分类'} · 已播放 {item.play_count} 次</Text>
                 </View>
               </View>
             ))

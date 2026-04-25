@@ -1,6 +1,7 @@
 export default definePageConfig({
   navigationBarTitleText: '今日记录',
-  navigationBarBackgroundColor: '#3B82A6',
+  navigationBarBackgroundColor: '#0EA5A5',
   navigationBarTextStyle: 'white',
+  navigationStyle: 'custom',
   backgroundColor: '#FAFAFF',
 });

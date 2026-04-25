@@ -604,6 +604,30 @@ button {
   font-weight: 700;
 }
 
+.admin-link--danger {
+  color: #dc2626;
+}
+
+.admin-header-actions,
+.admin-row-actions,
+.admin-modal__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-row-actions {
+  flex-wrap: nowrap;
+}
+
+.admin-row-actions .admin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
 .admin-table-toolbar {
   padding: 24px;
   display: flex;
@@ -703,8 +727,17 @@ button {
 
 .admin-media-card {
   overflow: hidden;
+  padding: 0;
+  border: 0;
   border-radius: 14px;
   background: #f9fafb;
+  text-align: left;
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.admin-media-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 34px rgba(17, 24, 39, 0.12);
 }
 
 .admin-media-card > div {
@@ -732,6 +765,81 @@ button {
   gap: 6px;
   color: #6b7280;
   font-size: 12px;
+}
+
+.admin-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.admin-modal__mask {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(17, 24, 39, 0.42);
+}
+
+.admin-modal__panel {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 420px);
+  padding: 28px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 28px 72px rgba(17, 24, 39, 0.22);
+}
+
+.admin-modal__panel h2 {
+  margin: 0 0 12px;
+  color: #111827;
+  font-size: 22px;
+}
+
+.admin-modal__panel p {
+  white-space: pre-line;
+  margin: 0 0 24px;
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+.admin-user-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-user-form label {
+  display: grid;
+  gap: 8px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-user-form input,
+.admin-user-form select {
+  width: 100%;
+  height: 44px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f9fafb;
+  padding: 0 12px;
+  color: #111827;
+  font-size: 14px;
+}
+
+.admin-modal__actions {
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .admin-alert-stats {

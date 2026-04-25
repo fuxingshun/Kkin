@@ -3,6 +3,7 @@ import Taro, { useDidHide, useDidShow } from '@tarojs/taro';
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components';
 import { chatWithAi, voiceChatWithAi } from '@/services/aiCompanion';
 import { getAiInteractions, type AiInteraction } from '@/services/elderly';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 
 type RecorderStopResult = {
   tempFilePath?: string;
@@ -81,6 +82,7 @@ function sortMessagesByTime(items: AiInteraction[]) {
 }
 
 export default function ElderlyCompanionPage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [messages, setMessages] = useState<AiInteraction[]>([]);
@@ -460,7 +462,7 @@ export default function ElderlyCompanionPage() {
   }
 
   return (
-    <View className='ef-chat-page'>
+    <View className={`ef-chat-page ${preferenceClassName}`}>
       <View className='ef-companion-topbar'>
         <Text className='ef-topbar__back' onClick={() => Taro.redirectTo({ url: '/pages/elderly/home/index' })}>
           ‹
@@ -468,7 +470,7 @@ export default function ElderlyCompanionPage() {
 
         <View className='ef-chat-header'>
           <View className='ef-header-avatar'>
-            <Text>陪</Text>
+            <Text>👵</Text>
           </View>
           <View className='ef-header-main'>
             <Text className='ef-header-name'>小心</Text>
@@ -489,7 +491,7 @@ export default function ElderlyCompanionPage() {
             return (
               <View className={`ef-chat-row ${isUser ? 'ef-chat-row--user' : ''}`} key={`${item.id}-${index}`}>
                 <View className={`ef-chat-avatar ${isUser ? 'ef-chat-avatar--user' : ''}`}>
-                  <Text>{isUser ? '我' : '陪'}</Text>
+                  <Text>{isUser ? '👤' : '👵'}</Text>
                 </View>
                 <View className={`ef-chat-bubble-wrap ${isUser ? 'ef-chat-bubble-wrap--user' : ''}`}>
                   <View className={`ef-chat-bubble ${isUser ? 'ef-chat-bubble--user' : ''}`}>

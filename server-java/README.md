@@ -37,9 +37,51 @@ spring:
     password: your-mysql-password
 
 kinecho:
+  api-token-enabled: false
+  api-token: ''
   bailian-api-key: sk-your-bailian-api-key
   bailian-asr-file-base-url: ''
 ```
+
+Production should enable API token protection:
+
+```yaml
+kinecho:
+  api-token-enabled: true
+  api-token: your-long-random-token
+```
+
+Clients can send the token through either `Authorization: Bearer ...` or `X-KinEcho-Token`.
+
+## Auth and overview APIs
+
+The backend now exposes:
+
+- `POST /api/auth/login`
+- `GET /api/service/overview?family_id=family_001`
+- `GET /api/admin/service-summary?family_id=family_001`
+- `GET /api/admin/analytics?family_id=family_001&months=6&days=7`
+
+`/api/auth/login` supports `elderly`, `family`, `service`, and `admin` roles.
+
+For the local demo environment:
+
+- elderly/family users can log in with their name or phone number
+- the default password can use the last 6 digits of the phone number
+- service/admin credentials come from Spring config under:
+  - `kinecho.service-username`
+  - `kinecho.service-password`
+  - `kinecho.service-family-id`
+  - `kinecho.admin-username`
+  - `kinecho.admin-password`
+
+Use `kinecho.service-family-id` to bind the service miniapp to the correct family context instead of relying on the demo default `family_001`.
+
+Override these values in `application-local.yml` or `application-prod.yml` before deployment.
+
+`/api/admin/service-summary` is used by the admin service collaboration page to aggregate service staff capacity, active followups, pending alerts, and high-risk elderly cases.
+
+`/api/admin/analytics` is used by the admin analytics page to return real user growth data plus recent followup and media activity trends.
 
 `bailian-asr-file-base-url` should be set to a public origin when Bailian needs to download uploaded voice files, for example:
 

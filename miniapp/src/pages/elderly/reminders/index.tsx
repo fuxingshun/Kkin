@@ -7,14 +7,14 @@ import {
   updateScheduleStatus,
   type Schedule,
 } from '@/services/elderly';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { getElderlySession } from '@/utils/session';
 
 const categoryDefs = [
   { label: '全部', type: '' },
   { label: '用药', type: 'medication' },
-  { label: '饮食', type: 'meal' },
+  { label: '饮水', type: 'meal' },
   { label: '活动', type: 'exercise' },
-  { label: '复诊', type: 'checkup' },
 ];
 
 function parseDate(value?: string) {
@@ -58,6 +58,7 @@ function getStatusTone(status?: Schedule['status']) {
 }
 
 export default function ElderlyRemindersPage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const { familyId } = getElderlySession();
   const [tasks, setTasks] = useState<Schedule[]>([]);
   const [historyTasks, setHistoryTasks] = useState<Schedule[]>([]);
@@ -89,8 +90,9 @@ export default function ElderlyRemindersPage() {
   });
 
   const filteredTasks = useMemo(() => {
-    if (!activeCategory) return tasks;
-    return tasks.filter((item) => item.schedule_type === activeCategory);
+    const activeTasks = tasks.filter((item) => !['completed', 'skipped', 'missed'].includes(item.status || 'pending'));
+    if (!activeCategory) return activeTasks;
+    return activeTasks.filter((item) => item.schedule_type === activeCategory);
   }, [activeCategory, tasks]);
 
   const filteredHistoryTasks = useMemo(() => {
@@ -114,17 +116,17 @@ export default function ElderlyRemindersPage() {
   }
 
   return (
-    <View className='ef-page ef-page--sub'>
+    <View className={`ef-page ef-page--sub ${preferenceClassName}`}>
       <View className='ef-topbar ef-topbar--sticky'>
         <Text className='ef-topbar__back' onClick={() => Taro.redirectTo({ url: '/pages/elderly/home/index' })}>〈</Text>
-        <Text className='ef-topbar__title'>提醒任务</Text>
+        <Text className='ef-topbar__title'>任务管理</Text>
         <Text className='ef-topbar__space' />
       </View>
 
       <View className='ef-progress-card'>
         <View className='ef-progress-card__top'>
           <View>
-            <Text className='ef-progress-card__label'>今日完成度</Text>
+            <Text className='ef-progress-card__label'>今日完成进度</Text>
             <Text className='ef-progress-card__value'>{completedCount}/{tasks.length}</Text>
           </View>
           <View className='ef-progress-ring'>
@@ -144,7 +146,7 @@ export default function ElderlyRemindersPage() {
             <Text
               className='ef-filter-chip'
               key={category.label}
-              style={active ? { borderColor: '#3b82a6', background: '#e6f2f7', color: '#2c6b8a' } : undefined}
+              style={active ? { borderColor: '#5b6fd8', background: '#5b6fd8', color: '#ffffff' } : undefined}
               onClick={() => setActiveCategory(category.type)}
             >
               {category.label} <Text>({count})</Text>
@@ -181,10 +183,10 @@ export default function ElderlyRemindersPage() {
             })
           ) : (
             <View className='ef-task-card'>
-              <View className='ef-reminder__icon'><Text>空</Text></View>
+              <View className='ef-reminder__icon'><Text>✓</Text></View>
               <View className='ef-task-card__body'>
-                <Text className='ef-card-title'>暂无任务</Text>
-                <Text className='ef-card-text'>家属端新增护理计划后会同步到这里。</Text>
+                <Text className='ef-card-title'>暂无待办任务</Text>
+                <Text className='ef-card-text'>家属端新增护理计划后会自动同步显示</Text>
               </View>
             </View>
           )}

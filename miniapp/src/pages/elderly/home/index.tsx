@@ -1,13 +1,14 @@
 import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
-import { Button, Text, View } from '@tarojs/components';
+import { Button, Image, Text, View } from '@tarojs/components';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
 import {
-  getElderlyMessages,
   getFamilyUsers,
   getLatestMood,
+  getMediaUrl,
   getPendingMessages,
   getRecommendedMedia,
+  getThumbnailUrl,
   getTodaySchedules,
   markAsPlayed,
   moodLabelMap,
@@ -17,6 +18,7 @@ import {
   type RecommendedMedia,
   type Schedule,
 } from '@/services/elderly';
+import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { getElderlySession } from '@/utils/session';
 
 function parseDate(value?: string) {
@@ -41,17 +43,25 @@ function getScheduleMark(type?: Schedule['schedule_type']) {
 
 function getGreetingName(users: FamilyUser[]) {
   const elderly = users.find((item) => item.user_type === 'elderly');
-  if (!elderly?.name) return '您好';
-  return elderly.name.endsWith('花') ? '张阿姨' : elderly.name;
+  if (!elderly?.name) return '王先生';
+  return elderly.name;
 }
 
 function getDateText() {
   const now = new Date();
   const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
-  return `${weekdays[now.getDay()]} · ${now.getMonth() + 1}月${now.getDate()}日`;
+  return `${weekdays[now.getDay()]}，${now.getMonth() + 1}月${now.getDate()}日`;
 }
 
+function getDailyRandomIndex(length: number, elderlyId: number) {
+  if (!length) return 0;
+  const now = new Date();
+  const seed = Number(`${now.getFullYear()}${now.getMonth() + 1}${now.getDate()}${elderlyId || 0}`);
+  const mixedSeed = ((seed * 9301 + 49297) % 233280) / 233280;
+  return Math.floor(mixedSeed * length);
+}
 export default function ElderlyHomePage() {
+  const preferenceClassName = useElderlyPreferenceClassNames();
   const { familyId, elderlyId, elderName } = getElderlySession();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<FamilyUser[]>([]);
@@ -63,18 +73,17 @@ export default function ElderlyHomePage() {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [nextUsers, todaySchedules, pendingMessages, allMessages, recommendedMedia, latestMood] = await Promise.all([
+      const [nextUsers, todaySchedules, pendingMessages, recommendedMedia, latestMood] = await Promise.all([
         getFamilyUsers(familyId),
         getTodaySchedules(familyId),
         getPendingMessages(familyId),
-        getElderlyMessages(familyId),
         getRecommendedMedia(familyId, elderlyId),
         getLatestMood(familyId, elderlyId),
       ]);
 
       setUsers(nextUsers);
       setSchedules(todaySchedules);
-      setMessage(pendingMessages[0] || allMessages[0] || null);
+      setMessage(pendingMessages[0] || null);
       setMediaList(recommendedMedia);
       setMoodLabel(latestMood ? moodLabelMap[latestMood.mood_type] : '未记录');
     } catch (error) {
@@ -94,8 +103,15 @@ export default function ElderlyHomePage() {
     void loadData();
   });
 
-  const visibleSchedules = useMemo(() => schedules.slice(0, 3), [schedules]);
-  const currentMedia = mediaList[0] || null;
+  const visibleSchedules = useMemo(
+    () => schedules.filter((item) => item.status !== 'completed' && item.status !== 'skipped' && item.status !== 'missed').slice(0, 3),
+    [schedules]
+  );
+  const currentMedia = useMemo(() => {
+    if (!mediaList.length) return null;
+    return mediaList[getDailyRandomIndex(mediaList.length, elderlyId)] || mediaList[0] || null;
+  }, [elderlyId, mediaList]);
+  const greetingName = users.length ? getGreetingName(users) : elderName || '王先生';
 
   async function completeSchedule(scheduleId?: number) {
     if (!scheduleId) return;
@@ -122,24 +138,29 @@ export default function ElderlyHomePage() {
   }
 
   return (
-    <View className='ef-page ef-page--tab ef-home'>
-      <View className='ef-home-hero'>
+    <View className={`ef-page ef-page--tab ef-home ${preferenceClassName}`}>
+      <View className='ef-home-hero' style={{ background: '#5B6FD8' }}>
         <View className='ef-home-hero__top'>
           <View>
             <Text className='ef-home-hero__date'>{getDateText()}</Text>
-            <Text className='ef-home-hero__title'>{users.length ? getGreetingName(users) : elderName}，早上好</Text>
+            <Text className='ef-home-hero__title'>您好，{greetingName}</Text>
           </View>
-          <Button className='ef-icon-button ef-icon-button--glass'>{moodLabel.slice(0, 1)}</Button>
+          <Button
+            className='ef-icon-button ef-icon-button--glass'
+            onClick={() => Taro.navigateTo({ url: '/pages/elderly/reminders/index' })}
+          >
+            铃
+          </Button>
         </View>
-        <View className='ef-weather'>
-          <Text className='ef-weather__icon'>晴</Text>
-          <Text>{loading ? '正在同步今日数据' : `今日状态 · ${moodLabel} · ${schedules.length}个提醒`}</Text>
+        <View className='ef-home-status'>
+          <Text className='ef-home-status__icon'>时</Text>
+          <Text>{loading ? '正在同步今日数据' : `今日 ${visibleSchedules.length} 项待办 · 情绪${moodLabel}`}</Text>
         </View>
       </View>
 
-      <View className='ef-block ef-block--overlap'>
+      <View className='ef-home-card ef-home-card--overlap'>
         <View className='ef-section-head'>
-          <Text className='ef-section-title'>今日提醒</Text>
+          <Text className='ef-section-title'>今日任务</Text>
           <Text className='ef-link' onClick={() => Taro.navigateTo({ url: '/pages/elderly/reminders/index' })}>
             查看全部
           </Text>
@@ -166,10 +187,10 @@ export default function ElderlyHomePage() {
             })
           ) : (
             <View className='ef-reminder'>
-              <View className='ef-reminder__icon'><Text>安</Text></View>
+              <View className='ef-reminder__icon'><Text>✓</Text></View>
               <View className='ef-reminder__body'>
-                <Text className='ef-card-title'>今天暂无提醒</Text>
-                <Text className='ef-card-text'>家人新增护理计划后会自动出现在这里。</Text>
+                <Text className='ef-card-title'>暂无待办任务</Text>
+                <Text className='ef-card-text'>家属端新增护理计划后会同步显示</Text>
               </View>
             </View>
           )}
@@ -178,11 +199,11 @@ export default function ElderlyHomePage() {
 
       <View className='ef-greeting-card'>
         <View className='ef-round-icon ef-round-icon--warm'>
-          <Text>心</Text>
+          <Text>♡</Text>
         </View>
         <View className='ef-greeting-card__body'>
-          <Text className='ef-card-title'>{message ? `${message.sender_relation}给您发来留言` : '家人的留言'}</Text>
-          <Text className='ef-card-text'>{message ? `"${message.content}"` : '暂时没有新留言，家人发来的话会出现在这里。'}</Text>
+          <Text className='ef-card-title'>家属关怀</Text>
+          <Text className='ef-card-text'>{message ? `${message.sender_relation}：${message.content}` : '家属发送的留言和关怀信息将在此显示'}</Text>
           {message ? <Text className='ef-warm-link' onClick={handleReadMessage}>我已收到 〉</Text> : null}
         </View>
       </View>
@@ -191,41 +212,50 @@ export default function ElderlyHomePage() {
         <Text className='ef-section-title'>今日回忆</Text>
         <View className='ef-memory-cover' onClick={() => Taro.redirectTo({ url: '/pages/elderly/memories/index' })}>
           <View className='ef-memory-cover__stage'>
-            <View className='ef-round-icon ef-round-icon--blue'>
-              <Text>{currentMedia?.media_type === 'video' ? '视' : '忆'}</Text>
-            </View>
-            <Text className='ef-memory-cover__hint'>{currentMedia ? '点击查看今日回忆' : '等待家人上传回忆'}</Text>
-          </View>
-          <View className='ef-memory-cover__info'>
-            <Text className='ef-card-title'>{currentMedia?.title || '暂无回忆内容'}</Text>
-            <Text className='ef-card-text'>{currentMedia?.description || '家属端上传照片或视频后会同步到这里'}</Text>
+            {currentMedia ? (
+              <Image
+                className='ef-memory-player__image'
+                mode='aspectFill'
+                src={currentMedia.thumbnail_path ? getThumbnailUrl(currentMedia.thumbnail_path) : getMediaUrl(currentMedia.file_path)}
+              />
+            ) : (
+              <View className='ef-round-icon ef-round-icon--blue'>
+                <Text>♡</Text>
+              </View>
+            )}
+            <Text className='ef-memory-cover__hint'>点击查看今日回忆</Text>
           </View>
         </View>
       </View>
 
-      <View className='ef-quick-grid'>
-        <View className='ef-quick-card' onClick={() => Taro.navigateTo({ url: '/pages/elderly/help/index' })}>
-          <View className='ef-round-icon ef-round-icon--primary'>
-            <Text>电</Text>
+      <View className='ef-quick-section'>
+        <Text className='ef-section-title'>快捷功能</Text>
+        <View className='ef-quick-grid'>
+          <View className='ef-quick-card' onClick={() => Taro.navigateTo({ url: '/pages/elderly/help/index' })}>
+            <View className='ef-round-icon ef-round-icon--primary'>
+              <Text>电</Text>
+            </View>
+            <Text>联系家人</Text>
           </View>
-          <Text>联系家人</Text>
-        </View>
-        <View className='ef-quick-card' onClick={() => Taro.redirectTo({ url: '/pages/elderly/companion/index' })}>
-          <View className='ef-round-icon ef-round-icon--green'>
-            <Text>陪</Text>
+          <View className='ef-quick-card' onClick={() => Taro.redirectTo({ url: '/pages/elderly/companion/index' })}>
+            <View className='ef-round-icon ef-round-icon--green'>
+              <Text>聊</Text>
+            </View>
+            <Text>AI陪伴</Text>
           </View>
-          <Text>AI陪伴</Text>
         </View>
-        <View className='ef-quick-card ef-quick-card--wide' onClick={() => Taro.navigateTo({ url: '/pages/elderly/counseling/index' })}>
+      </View>
+
+      <View className='ef-quick-card ef-quick-card--wide ef-counseling-entry' onClick={() => Taro.navigateTo({ url: '/pages/elderly/counseling/index' })}>
           <View className='ef-round-icon ef-round-icon--white'>
-            <Text>询</Text>
+            <Text>人</Text>
           </View>
-          <Text className='ef-quick-card__title'>心理咨询</Text>
-          <Text className='ef-quick-card__desc'>专业心理咨询师为您服务</Text>
-        </View>
+          <Text className='ef-quick-card__title'>心理咨询服务</Text>
+          <Text className='ef-quick-card__desc'>专业心理咨询师随时为您提供支持</Text>
       </View>
 
       <ElderlyTabBar active='home' />
     </View>
   );
 }
+

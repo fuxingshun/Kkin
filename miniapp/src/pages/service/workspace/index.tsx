@@ -6,13 +6,16 @@ import {
   advanceFollowupStatus,
   getServiceCases,
   getServiceFollowups,
+  getServiceOverview,
   getServiceTasks,
   startServiceTask,
+  type ServiceOverview,
   type ServiceCase,
   type ServiceFollowup,
   type ServiceTask,
 } from '@/services/service';
 import { formatDateTimeText } from '@/utils/format';
+import { getServiceSession } from '@/utils/serviceSession';
 
 function getPriorityClass(priority: ServiceTask['priority']) {
   return priority === 'high' ? 'service-ticket--high' : '';
@@ -41,20 +44,25 @@ function getFollowupButtonLabel(item: ServiceFollowup) {
 }
 
 export default function ServiceWorkspacePage() {
+  const [serviceSession, setServiceSession] = useState(() => getServiceSession());
   const [tasks, setTasks] = useState<ServiceTask[]>([]);
   const [cases, setCases] = useState<ServiceCase[]>([]);
   const [followups, setFollowups] = useState<ServiceFollowup[]>([]);
+  const [overview, setOverview] = useState<ServiceOverview | null>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [nextTasks, nextCases, nextFollowups] = await Promise.all([
+      setServiceSession(getServiceSession());
+      const [nextTasks, nextCases, nextFollowups, nextOverview] = await Promise.all([
         getServiceTasks(),
         getServiceCases(),
         getServiceFollowups(),
+        getServiceOverview(),
       ]);
       setTasks(nextTasks);
       setCases(nextCases);
       setFollowups(nextFollowups);
+      setOverview(nextOverview);
     } catch (error) {
       const message = error instanceof Error ? error.message : '工作台加载失败';
       Taro.showToast({ title: message, icon: 'none' });
@@ -106,7 +114,7 @@ export default function ServiceWorkspacePage() {
       <View className='service-hero'>
         <View className='service-hero__top'>
           <View>
-            <Text className='service-kicker'>心理咨询师</Text>
+            <Text className='service-kicker'>{serviceSession.displayName || '服务专员'}</Text>
             <Text className='service-hero__title'>服务工作台</Text>
             <Text className='service-hero__subtitle'>高风险个案、工单和随访安排都在这里。</Text>
           </View>
@@ -116,15 +124,15 @@ export default function ServiceWorkspacePage() {
         </View>
         <View className='service-stat-grid'>
           <View className='service-stat service-stat--glass'>
-            <Text className='service-stat__value'>{openTasks.length}</Text>
+            <Text className='service-stat__value'>{overview?.task_stats.pending ?? openTasks.length}</Text>
             <Text className='service-stat__label'>待处理工单</Text>
           </View>
           <View className='service-stat service-stat--glass'>
-            <Text className='service-stat__value'>{openCases.length}</Text>
+            <Text className='service-stat__value'>{(overview?.case_stats.high ?? 0) + (overview?.case_stats.medium ?? 0) || openCases.length}</Text>
             <Text className='service-stat__label'>重点个案</Text>
           </View>
           <View className='service-stat service-stat--glass'>
-            <Text className='service-stat__value'>{activeFollowups.length}</Text>
+            <Text className='service-stat__value'>{overview?.followup_stats.active ?? activeFollowups.length}</Text>
             <Text className='service-stat__label'>今日随访</Text>
           </View>
         </View>

@@ -13,6 +13,7 @@ import {
   type Schedule,
 } from '@/services/family';
 import { combineDateTime, formatDateTimeText, formatDateValue, formatTimeValue } from '@/utils/format';
+import { useNavigationMetrics } from '@/utils/navigation';
 
 const filters = [
   { key: 'all', label: '全部' },
@@ -67,6 +68,7 @@ function sortSchedules(list: Schedule[]) {
 }
 
 export default function CarePage() {
+  const navigation = useNavigationMetrics();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -187,7 +189,7 @@ export default function CarePage() {
 
   return (
     <View className='ff-page ff-page--tab'>
-      <View className='ff-hero ff-hero--green'>
+      <View className='ff-hero ff-hero--green' style={navigation.heroStyle}>
         <View className='ff-hero__top'>
           <View>
             <Text className='ff-kicker'>护理计划</Text>
@@ -297,12 +299,12 @@ export default function CarePage() {
                   onInput={(event) => setDescription(event.detail.value)}
                 />
               </View>
-              <View className='ke-form__row'>
-                <Button className='ke-button--ghost' onClick={() => setComposerOpen(false)}>
+              <View className='ff-form-actions'>
+                <Button className='ff-form-button ff-form-button--ghost' onClick={() => setComposerOpen(false)}>
                   取消
                 </Button>
-                <Button className='service-button service-button--primary' loading={saving} onClick={() => void handleCreate()}>
-                  保存计划
+                <Button className='ff-form-button ff-form-button--success' loading={saving} onClick={() => void handleCreate()}>
+                  确认保存
                 </Button>
               </View>
             </View>

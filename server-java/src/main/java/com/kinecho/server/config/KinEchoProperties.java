@@ -16,6 +16,16 @@ import java.util.Locale;
 public class KinEchoProperties {
     public ZoneId zoneId = ZoneId.of("Asia/Shanghai");
     public boolean seedDemoData = true;
+    public boolean apiTokenEnabled = false;
+    public String apiToken = "";
+    public String demoLoginPassword = "123456";
+    public String serviceUsername = "service";
+    public String servicePassword = "123456";
+    public String serviceFamilyId = "family_001";
+    public String serviceDisplayName = "服务专员";
+    public String adminUsername = "admin";
+    public String adminPassword = "123456";
+    public String adminDisplayName = "平台管理员";
     public String aiChatProvider = "bailian";
     public int aiAudioRetentionCount = 32;
 
@@ -67,6 +77,15 @@ public class KinEchoProperties {
         aiVoiceUploadDir = resolvePath(aiVoiceUploadDirPath, projectRoot);
 
         aiChatProvider = valueOrDefault(aiChatProvider, "bailian").toLowerCase(Locale.ROOT);
+        apiToken = valueOrDefault(apiToken, "");
+        demoLoginPassword = valueOrDefault(demoLoginPassword, "123456");
+        serviceUsername = valueOrDefault(serviceUsername, "service");
+        servicePassword = valueOrDefault(servicePassword, "123456");
+        serviceFamilyId = valueOrDefault(serviceFamilyId, "family_001");
+        serviceDisplayName = valueOrDefault(serviceDisplayName, "服务专员");
+        adminUsername = valueOrDefault(adminUsername, "admin");
+        adminPassword = valueOrDefault(adminPassword, "123456");
+        adminDisplayName = valueOrDefault(adminDisplayName, "平台管理员");
         bailianApiBaseUrl = trimTrailingSlash(bailianApiBaseUrl);
         bailianCompatibleBaseUrl = trimTrailingSlash(bailianCompatibleBaseUrl);
         bailianAsrFileBaseUrl = trimTrailingSlash(bailianAsrFileBaseUrl);
@@ -85,6 +104,46 @@ public class KinEchoProperties {
 
     public void setSeedDemoData(boolean seedDemoData) {
         this.seedDemoData = seedDemoData;
+    }
+
+    public void setApiTokenEnabled(boolean apiTokenEnabled) {
+        this.apiTokenEnabled = apiTokenEnabled;
+    }
+
+    public void setApiToken(String apiToken) {
+        this.apiToken = valueOrDefault(apiToken, "");
+    }
+
+    public void setDemoLoginPassword(String demoLoginPassword) {
+        this.demoLoginPassword = valueOrDefault(demoLoginPassword, this.demoLoginPassword);
+    }
+
+    public void setServiceUsername(String serviceUsername) {
+        this.serviceUsername = valueOrDefault(serviceUsername, this.serviceUsername);
+    }
+
+    public void setServicePassword(String servicePassword) {
+        this.servicePassword = valueOrDefault(servicePassword, this.servicePassword);
+    }
+
+    public void setServiceFamilyId(String serviceFamilyId) {
+        this.serviceFamilyId = valueOrDefault(serviceFamilyId, this.serviceFamilyId);
+    }
+
+    public void setServiceDisplayName(String serviceDisplayName) {
+        this.serviceDisplayName = valueOrDefault(serviceDisplayName, this.serviceDisplayName);
+    }
+
+    public void setAdminUsername(String adminUsername) {
+        this.adminUsername = valueOrDefault(adminUsername, this.adminUsername);
+    }
+
+    public void setAdminPassword(String adminPassword) {
+        this.adminPassword = valueOrDefault(adminPassword, this.adminPassword);
+    }
+
+    public void setAdminDisplayName(String adminDisplayName) {
+        this.adminDisplayName = valueOrDefault(adminDisplayName, this.adminDisplayName);
     }
 
     public void setAiChatProvider(String aiChatProvider) {
