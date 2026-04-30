@@ -107,6 +107,34 @@ export interface ApiHealth {
   backend: string;
 }
 
+export interface ApiCareInsight {
+  family_id: string;
+  elderly_id: number;
+  elderly_name?: string;
+  risk_level: 'high' | 'medium' | 'low' | string;
+  status_label: string;
+  summary: string;
+  reason: string;
+  next_step: string;
+  service_sop: string[];
+  family_message: string;
+  elderly_message: string;
+  latest_service_record?: string;
+  metrics: {
+    open_alerts: number;
+    high_alerts: number;
+    today_tasks: number;
+    completed_tasks: number;
+    completion_rate: number;
+    mood_score?: number | null;
+    pending_messages: number;
+    recent_ai_messages: number;
+    recent_media_plays: number;
+    active_followups: number;
+  };
+  generated_at: string;
+}
+
 export interface ApiAdminServiceSummary {
   family_id: string;
   overview: {
@@ -227,7 +255,7 @@ async function request<T>(path: string, options: RequestOptions = {}) {
   const data = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(data, `请求失败�?{response.status}`));
+    throw new Error(getErrorMessage(data, `请求失败�?{response.status}`));
   }
 
   return data as T;
@@ -266,6 +294,11 @@ export async function getAdminAnalytics(
     days: options.days ?? 7,
   });
   return request<ApiAdminAnalytics>(`/admin/analytics?${query}`);
+}
+
+export async function getCareInsight(familyId = ADMIN_FAMILY_ID, elderlyId?: number) {
+  const query = buildQueryString({ family_id: familyId, elderly_id: elderlyId });
+  return request<ApiCareInsight>(`/care/insight?${query}`);
 }
 
 export async function getUsers(familyId = ADMIN_FAMILY_ID) {
@@ -372,7 +405,7 @@ export async function uploadMedia(file: File, title: string, description = '', f
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(data, `上传失败�?{response.status}`));
+    throw new Error(getErrorMessage(data, `上传失败�?{response.status}`));
   }
 
   return data as { media_id: number };

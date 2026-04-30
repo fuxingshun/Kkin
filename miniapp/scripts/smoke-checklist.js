@@ -103,19 +103,26 @@ async function checkLiveUserCrud() {
 async function main() {
   const appConfig = readText('miniapp/src/app.config.ts');
   const miniappConfig = readText('miniapp/config/index.js');
+  const miniappEnv = readText('miniapp/.env');
   const miniappRequest = readText('miniapp/src/utils/request.ts');
   const miniappAuth = readText('miniapp/src/services/auth.ts');
   const elderlyService = readText('miniapp/src/services/elderly.ts');
+  const aiCompanionServiceClient = readText('miniapp/src/services/aiCompanion.ts');
   const familyService = readText('miniapp/src/services/family.ts');
   const serviceService = readText('miniapp/src/services/service.ts');
   const loginPage = readText('miniapp/src/pages/login/index.tsx');
+  const elderlyHomePage = readText('miniapp/src/pages/elderly/home/index.tsx');
+  const familyDashboardPage = readText('miniapp/src/pages/family/dashboard/index.tsx');
+  const serviceCaseDetailPage = readText('miniapp/src/pages/service/case-detail/index.tsx');
   const serviceSession = readText('miniapp/src/utils/serviceSession.ts');
   const adminApi = readText('src/admin/api.ts');
   const adminMain = readText('src/admin/main.tsx');
   const apiTokenInterceptor = readText('server-java/src/main/java/com/kinecho/server/config/ApiTokenInterceptor.java');
   const userController = readText('server-java/src/main/java/com/kinecho/server/controller/KinEchoApiController.java');
   const userService = readText('server-java/src/main/java/com/kinecho/server/service/KinEchoApiService.java');
+  const aiCompanionService = readText('server-java/src/main/java/com/kinecho/server/service/AiCompanionService.java');
   const mapper = readText('server-java/src/main/java/com/kinecho/server/mapper/KinEchoMapper.java');
+  const appYml = readText('server-java/src/main/resources/application.yml');
   const checklist = readText('docs/小程序关键路径冒烟测试清单.md');
 
   const keyPages = [
@@ -171,6 +178,22 @@ async function main() {
   );
 
   addCheck(
+    'care insight closed-loop clients',
+    includesAll(elderlyService, ['getElderlyCareInsight', '/care/insight']) &&
+      includesAll(familyService, ['getCareInsight', '/care/insight', 'service_sop']) &&
+      includesAll(serviceService, ['CareInsight', 'insight: data.insight || null']),
+    'miniapp care insight service clients'
+  );
+
+  addCheck(
+    'care insight role surfaces',
+    includesAll(elderlyHomePage, ['ef-care-insight', 'getElderlyCareInsight']) &&
+      includesAll(familyDashboardPage, ['ff-care-insight', 'getCareInsight']) &&
+      includesAll(serviceCaseDetailPage, ['service-insight', 'service_sop']),
+    'elderly/family/service care insight surfaces'
+  );
+
+  addCheck(
     'session scoped miniapp context',
     includesAll(elderlyService, ['getElderlySession', 'resolveFamilyId', 'resolveElderlyId']) &&
       includesAll(serviceService, ['getCurrentServiceFamilyId', 'resolveFamilyId']) &&
@@ -201,6 +224,24 @@ async function main() {
     'miniapp api token injection',
     includesAll(miniappConfig, ['__API_TOKEN__']) && includesAll(miniappRequest, ['Authorization', 'X-KinEcho-Token']),
     'miniapp config + request'
+  );
+
+  addCheck(
+    'miniapp api base self healing',
+    includesAll(miniappConfig, ['isLocalDevelopmentApiBaseUrl', 'lanFallbacks', 'externalConfigured', "'http://127.0.0.1:8000/api'"]) &&
+      includesAll(miniappRequest, [
+        'ACTIVE_API_BASE_URL_SIGNATURE_KEY',
+        'ensureApiBaseUrlCacheFresh',
+        'isKnownApiBaseUrl',
+        'forgetFailedUrl',
+      ]),
+    'stale LAN API cache should not pin requests to old IPs'
+  );
+
+  addCheck(
+    'miniapp env avoids stale LAN pinning',
+    !miniappEnv.includes('192.168.1.12') && includesAll(miniappEnv, ['TARO_APP_API_BASE_URL=']),
+    'miniapp/.env should let config auto-detect the current LAN IP'
   );
 
   addCheck(
@@ -275,6 +316,29 @@ async function main() {
     'admin summary service contract',
     includesAll(userService, ['getAdminServiceSummary', 'getAdminAnalytics', 'weekly_activity', 'role_stats', 'case_rows']),
     'KinEchoApiService.java'
+  );
+
+  addCheck(
+    'care insight backend contract',
+    includesAll(userController, ['@GetMapping("/care/insight")']) &&
+      includesAll(userService, ['getCareInsight', 'careServiceSop', 'auditCareAction']) &&
+      includesAll(mapper, ['care_audit_logs', 'idx_care_audit_family_created']),
+    'care insight API + audit log'
+  );
+
+  addCheck(
+    'ai companion quick fallback contract',
+    includesAll(aiCompanionService, [
+      'INTERACTIVE_CHAT_TIMEOUT_SECONDS = 10',
+      'INTERACTIVE_TTS_TIMEOUT_SECONDS = 4',
+      'safeRecordInteraction',
+      'fallbackChat',
+      'canUseBailianChat',
+    ]) &&
+      includesAll(userService, ['return ok(aiCompanion.fallbackChat(message, user, ex.getMessage()))']) &&
+      includesAll(appYml, ['bailian-chat-model: qwen-turbo', 'bailian-chat-timeout-seconds: 10', 'bailian-tts-timeout-seconds: 4']) &&
+      includesAll(aiCompanionServiceClient, ['AI_CHAT_TIMEOUT = 18000', 'AI_VOICE_CHAT_TIMEOUT = 120000']),
+    'AI chat should wait for provider while still degrading before miniapp timeout'
   );
 
   addCheck(

@@ -463,6 +463,96 @@ button {
   border-radius: 12px;
 }
 
+.admin-care-command {
+  display: grid;
+  gap: 22px;
+  border-color: #dbeafe;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+}
+
+.admin-care-command--high {
+  border-color: #fed7aa;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
+}
+
+.admin-care-command--medium {
+  border-color: #bfdbfe;
+}
+
+.admin-care-command__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.admin-care-command__head h2 {
+  margin: 6px 0 8px;
+}
+
+.admin-care-command__head p {
+  max-width: 760px;
+  margin: 0;
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+.admin-kicker {
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-care-command__score {
+  min-width: 132px;
+  padding: 16px;
+  border-radius: 12px;
+  text-align: center;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.admin-care-command__score strong {
+  display: block;
+  font-size: 32px;
+  line-height: 1;
+}
+
+.admin-care-command__score span {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-care-command__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-care-command__grid div {
+  padding: 16px;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+}
+
+.admin-care-command__grid span {
+  display: block;
+  margin-bottom: 8px;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.admin-care-command__grid strong {
+  display: block;
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
 .admin-panel--flush {
   padding: 0;
   overflow: hidden;

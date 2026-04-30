@@ -190,6 +190,34 @@ export interface Consultation {
   created_at?: string;
 }
 
+export interface CareInsight {
+  family_id: string;
+  elderly_id: number;
+  elderly_name?: string;
+  risk_level: 'high' | 'medium' | 'low' | string;
+  status_label: string;
+  summary: string;
+  reason: string;
+  next_step: string;
+  service_sop: string[];
+  family_message: string;
+  elderly_message: string;
+  latest_service_record?: string;
+  metrics: {
+    open_alerts: number;
+    high_alerts: number;
+    today_tasks: number;
+    completed_tasks: number;
+    completion_rate: number;
+    mood_score?: number | null;
+    pending_messages: number;
+    recent_ai_messages: number;
+    recent_media_plays: number;
+    active_followups: number;
+  };
+  generated_at: string;
+}
+
 export const moodLabelMap: Record<MoodType, string> = {
   happy: '开心',
   calm: '平稳',
@@ -370,6 +398,14 @@ export async function getAlertStats(familyId = DEFAULT_FAMILY_ID) {
     level_stats: Record<string, number>;
     type_stats: Record<string, number>;
   }>(`/family/alerts/stats?family_id=${resolveFamilyId(familyId)}`);
+}
+
+export async function getCareInsight(familyId = DEFAULT_FAMILY_ID, elderlyId?: number) {
+  const query = buildQueryString({
+    family_id: resolveFamilyId(familyId),
+    elderly_id: elderlyId,
+  });
+  return request<CareInsight>(`/care/insight?${query}`);
 }
 
 export async function getFamilyUsers(familyId = DEFAULT_FAMILY_ID) {

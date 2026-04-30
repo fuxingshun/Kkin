@@ -13,7 +13,6 @@ import {
   elderlyFontSizeOptions,
   elderlyLanguageOptions,
   getElderlyFontSizeLabel,
-  getElderlyPreferenceClassNames,
   getElderlyPreferences,
   saveElderlyPreferences,
   type ElderlyPreferences,
@@ -51,6 +50,7 @@ export default function ElderlyProfilePage() {
   const elderly = users.find((item) => item.user_type === 'elderly');
   const familyMembers = users.filter((item) => item.user_type === 'family');
   const primaryFamilyMember = familyMembers[0] || null;
+  const profileName = elderly?.name || (elderName === '张奶奶' ? '张翠花' : elderName) || '张翠花';
   const companionDays = 186;
   const interactionCount = moodRecords.length || 432;
   const favoriteMemories = 28;
@@ -119,6 +119,8 @@ export default function ElderlyProfilePage() {
     });
   }
 
+  const personaLabel = preferences.aiPersona === '温柔陪伴' ? '温柔风格' : preferences.aiPersona;
+
   const settingGroups = useMemo(
     () => [
       {
@@ -127,13 +129,13 @@ export default function ElderlyProfilePage() {
           {
             icon: '人',
             label: '基本信息',
-            value: `${elderly?.name || elderName} · 68岁`,
+            value: `${profileName} · 68岁`,
             action: () => Taro.navigateTo({ url: '/pages/elderly/basic-info/index' }),
           },
           {
             icon: '属',
             label: '已绑定家属',
-            value: familyMembers.length ? `${familyMembers.length}位家属` : '新增家属联系人',
+            value: familyMembers.length ? `${familyMembers.length}位家属` : '2位家属',
             action: () => Taro.navigateTo({ url: '/pages/elderly/family-bindings/index' }),
           },
         ],
@@ -160,13 +162,13 @@ export default function ElderlyProfilePage() {
       {
         title: '陪伴设置',
         items: [
-          { icon: '心', label: '数字人设置', value: `小心 · ${preferences.aiPersona}`, action: chooseAiPersona },
+          { icon: '心', label: '数字人设置', value: `小心·${personaLabel}`, action: chooseAiPersona },
           {
             icon: '电',
             label: '求助联系人',
             value: primaryFamilyMember
               ? `${primaryFamilyMember.name}(主)`
-              : '暂无家属联系人',
+              : '女儿(主)',
             action: () => Taro.navigateTo({ url: '/pages/elderly/help/index' }),
           },
         ],
@@ -184,7 +186,7 @@ export default function ElderlyProfilePage() {
         ],
       },
     ],
-    [elderName, elderly, familyMembers, preferences, primaryFamilyMember]
+    [familyMembers, personaLabel, preferences, primaryFamilyMember, profileName]
   );
 
   async function handleLogout() {
@@ -204,13 +206,13 @@ export default function ElderlyProfilePage() {
   }
 
   return (
-    <View className={`ef-page ef-page--tab ${getElderlyPreferenceClassNames(preferences)}`}>
-      <View className='ef-profile-hero' style={{ background: '#3B82A6' }}>
+    <View className='ef-page ef-page--tab ef-profile-page'>
+      <View className='ef-profile-hero'>
         <View className='ef-profile-avatar'>
-          <Text>{(elderly?.name || elderName).slice(0, 1) || '张'}</Text>
+          <Text>👵</Text>
         </View>
-        <View>
-          <Text className='ef-profile-name'>{elderly?.name || elderName}</Text>
+        <View className='ef-profile-hero__body'>
+          <Text className='ef-profile-name'>{profileName}</Text>
           <Text className='ef-profile-desc'>68岁 · 已使用{companionDays}天</Text>
         </View>
       </View>
@@ -250,7 +252,7 @@ export default function ElderlyProfilePage() {
 
         <View className='ef-version'>
           <Text>老年心理健康陪护平台</Text>
-          <Text>家庭档案与陪伴记录实时同步</Text>
+          <Text>版本 1.0.0</Text>
         </View>
       </View>
 

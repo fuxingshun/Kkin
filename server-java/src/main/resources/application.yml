@@ -55,13 +55,13 @@ kinecho:
   bailian-asr-timeout-seconds: 90
   bailian-asr-poll-interval-millis: 800
 
-  bailian-chat-model: qwen3.5-plus
-  bailian-chat-temperature: 0.8
-  bailian-chat-max-tokens: 500
-  bailian-chat-timeout-seconds: 45
+  bailian-chat-model: qwen-turbo
+  bailian-chat-temperature: 0.7
+  bailian-chat-max-tokens: 240
+  bailian-chat-timeout-seconds: 10
 
   bailian-tts-model: qwen3-tts-flash
   bailian-tts-voice: Serena
   bailian-tts-language-type: Chinese
   bailian-tts-file-extension: wav
-  bailian-tts-timeout-seconds: 60
+  bailian-tts-timeout-seconds: 4

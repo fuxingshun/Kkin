@@ -14,14 +14,17 @@ interface UploadOptions {
   filePath: string;
   name?: string;
   formData?: Record<string, string | number>;
+  timeout?: number;
 }
 
 type QueryValue = string | number | boolean | null | undefined;
 
 const ACTIVE_API_BASE_URL_KEY = 'kin-active-api-base-url';
+const ACTIVE_API_BASE_URL_SIGNATURE_KEY = 'kin-active-api-base-url-signature';
 const DEFAULT_TIMEOUT = 6000;
 
 let activeApiBaseUrl = '';
+let cacheSignatureChecked = false;
 
 function normalizeApiBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '');
@@ -44,10 +47,50 @@ function unique(values: string[]) {
   return result;
 }
 
+function getKnownApiBaseUrls() {
+  return unique([...API_BASE_URLS, API_BASE_URL].filter(Boolean));
+}
+
+function getApiBaseUrlSignature() {
+  return getKnownApiBaseUrls().join('|');
+}
+
+function isKnownApiBaseUrl(baseUrl: string) {
+  return getKnownApiBaseUrls().includes(normalizeApiBaseUrl(baseUrl));
+}
+
+function ensureApiBaseUrlCacheFresh() {
+  if (cacheSignatureChecked) {
+    return;
+  }
+
+  cacheSignatureChecked = true;
+  const signature = getApiBaseUrlSignature();
+  try {
+    const storedSignature = Taro.getStorageSync(ACTIVE_API_BASE_URL_SIGNATURE_KEY);
+    if (storedSignature !== signature) {
+      Taro.removeStorageSync(ACTIVE_API_BASE_URL_KEY);
+      Taro.setStorageSync(ACTIVE_API_BASE_URL_SIGNATURE_KEY, signature);
+      activeApiBaseUrl = '';
+    }
+  } catch {
+    activeApiBaseUrl = '';
+  }
+}
+
 function getStoredApiBaseUrl() {
+  ensureApiBaseUrlCacheFresh();
   try {
     const value = Taro.getStorageSync(ACTIVE_API_BASE_URL_KEY);
-    return typeof value === 'string' ? normalizeApiBaseUrl(value) : '';
+    const normalized = typeof value === 'string' ? normalizeApiBaseUrl(value) : '';
+    if (!normalized) {
+      return '';
+    }
+    if (!isKnownApiBaseUrl(normalized)) {
+      Taro.removeStorageSync(ACTIVE_API_BASE_URL_KEY);
+      return '';
+    }
+    return normalized;
   } catch {
     return '';
   }
@@ -55,7 +98,7 @@ function getStoredApiBaseUrl() {
 
 function setActiveApiBaseUrl(baseUrl: string) {
   const normalized = normalizeApiBaseUrl(baseUrl);
-  if (!normalized) {
+  if (!normalized || !isKnownApiBaseUrl(normalized)) {
     return;
   }
 
@@ -67,7 +110,28 @@ function setActiveApiBaseUrl(baseUrl: string) {
   }
 }
 
+function clearActiveApiBaseUrl(baseUrl: string) {
+  const normalized = normalizeApiBaseUrl(baseUrl);
+  if (!normalized) {
+    return;
+  }
+
+  if (normalizeApiBaseUrl(activeApiBaseUrl) === normalized) {
+    activeApiBaseUrl = '';
+  }
+
+  try {
+    const stored = Taro.getStorageSync(ACTIVE_API_BASE_URL_KEY);
+    if (typeof stored === 'string' && normalizeApiBaseUrl(stored) === normalized) {
+      Taro.removeStorageSync(ACTIVE_API_BASE_URL_KEY);
+    }
+  } catch {
+    activeApiBaseUrl = '';
+  }
+}
+
 export function getActiveApiBaseUrl() {
+  ensureApiBaseUrlCacheFresh();
   return normalizeApiBaseUrl(activeApiBaseUrl || getStoredApiBaseUrl() || API_BASE_URLS[0] || API_BASE_URL);
 }
 
@@ -76,6 +140,7 @@ export function getActiveApiOrigin() {
 }
 
 function getOrderedApiBaseUrls() {
+  ensureApiBaseUrlCacheFresh();
   return unique([activeApiBaseUrl, getStoredApiBaseUrl(), ...API_BASE_URLS, API_BASE_URL].filter(Boolean));
 }
 
@@ -92,11 +157,20 @@ function getApiBaseFromUrl(url: string) {
   return getOrderedApiBaseUrls().find((baseUrl) => url === baseUrl || url.startsWith(`${baseUrl}/`)) || '';
 }
 
+function getApiBaseFromRequestUrl(url: string) {
+  const match = url.match(/^(https?:\/\/[^/]+\/api)(?:\/|$)/);
+  return normalizeApiBaseUrl(match?.[1] || getApiBaseFromUrl(url));
+}
+
 function rememberSuccessfulUrl(url: string) {
   const baseUrl = getApiBaseFromUrl(url);
   if (baseUrl) {
     setActiveApiBaseUrl(baseUrl);
   }
+}
+
+function forgetFailedUrl(url: string) {
+  clearActiveApiBaseUrl(getApiBaseFromRequestUrl(url));
 }
 
 function formatAttemptedApiBases(urls: string[]) {
@@ -190,6 +264,7 @@ export async function request<T>(path: string, options: RequestOptions = {}) {
       });
     } catch (error) {
       lastError = error;
+      forgetFailedUrl(url);
       if (attemptedUrls.length >= candidateUrls.length) {
         const message = extractNetworkError(error, url);
         throw new Error(`${message}${formatAttemptedApiBases(attemptedUrls)}`);
@@ -204,6 +279,9 @@ export async function request<T>(path: string, options: RequestOptions = {}) {
     }
 
     lastError = new Error(extractErrorMessage(response.data, `请求失败：${response.statusCode}`));
+    if (response.statusCode >= 500) {
+      forgetFailedUrl(url);
+    }
     if (response.statusCode < 500 || attemptedUrls.length >= candidateUrls.length) {
       throw lastError;
     }
@@ -228,11 +306,12 @@ export async function uploadFile<T>(path: string, options: UploadOptions) {
         filePath: options.filePath,
         name: options.name || 'file',
         formData: options.formData,
-        timeout: DEFAULT_TIMEOUT,
+        timeout: options.timeout || DEFAULT_TIMEOUT,
         header: authHeaders(),
       });
     } catch (error) {
       lastError = error;
+      forgetFailedUrl(url);
       if (attemptedUrls.length >= candidateUrls.length) {
         const message = extractNetworkError(error, url);
         throw new Error(`${message}${formatAttemptedApiBases(attemptedUrls)}`);
@@ -249,6 +328,9 @@ export async function uploadFile<T>(path: string, options: UploadOptions) {
     }
 
     lastError = new Error(extractErrorMessage(data, `上传失败：${response.statusCode}`));
+    if (response.statusCode >= 500) {
+      forgetFailedUrl(url);
+    }
     if (response.statusCode < 500 || attemptedUrls.length >= candidateUrls.length) {
       throw lastError;
     }

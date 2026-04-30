@@ -3,6 +3,7 @@ import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Image, Text, View } from '@tarojs/components';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
 import {
+  getElderlyCareInsight,
   getFamilyUsers,
   getLatestMood,
   getMediaUrl,
@@ -13,6 +14,7 @@ import {
   markAsPlayed,
   moodLabelMap,
   updateScheduleStatus,
+  type CareInsight,
   type ElderlyMessage,
   type FamilyUser,
   type RecommendedMedia,
@@ -68,23 +70,26 @@ export default function ElderlyHomePage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [message, setMessage] = useState<ElderlyMessage | null>(null);
   const [mediaList, setMediaList] = useState<RecommendedMedia[]>([]);
+  const [careInsight, setCareInsight] = useState<CareInsight | null>(null);
   const [moodLabel, setMoodLabel] = useState('未记录');
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [nextUsers, todaySchedules, pendingMessages, recommendedMedia, latestMood] = await Promise.all([
+      const [nextUsers, todaySchedules, pendingMessages, recommendedMedia, latestMood, nextInsight] = await Promise.all([
         getFamilyUsers(familyId),
         getTodaySchedules(familyId),
         getPendingMessages(familyId),
         getRecommendedMedia(familyId, elderlyId),
         getLatestMood(familyId, elderlyId),
+        getElderlyCareInsight(familyId, elderlyId),
       ]);
 
       setUsers(nextUsers);
       setSchedules(todaySchedules);
       setMessage(pendingMessages[0] || null);
       setMediaList(recommendedMedia);
+      setCareInsight(nextInsight);
       setMoodLabel(latestMood ? moodLabelMap[latestMood.mood_type] : '未记录');
     } catch (error) {
       const messageText = error instanceof Error ? error.message : '加载失败';
@@ -155,6 +160,22 @@ export default function ElderlyHomePage() {
         <View className='ef-home-status'>
           <Text className='ef-home-status__icon'>时</Text>
           <Text>{loading ? '正在同步今日数据' : `今日 ${visibleSchedules.length} 项待办 · 情绪${moodLabel}`}</Text>
+        </View>
+      </View>
+
+      <View className={`ef-greeting-card ef-care-insight ef-care-insight--${careInsight?.risk_level || 'low'}`}>
+        <View className='ef-round-icon ef-round-icon--green'>
+          <Text>护</Text>
+        </View>
+        <View className='ef-greeting-card__body'>
+          <Text className='ef-card-title'>今日守护 · {careInsight?.status_label || '正在同步'}</Text>
+          <Text className='ef-card-text'>
+            {careInsight?.elderly_message || '正在汇总今天的照护任务、留言和情绪记录。'}
+          </Text>
+          <Text className='ef-card-meta'>
+            任务完成 {careInsight?.metrics?.completion_rate ?? 0}%
+            {careInsight?.metrics?.open_alerts ? ` · ${careInsight.metrics.open_alerts} 条待处理` : ' · 暂无待处理'}
+          </Text>
         </View>
       </View>
 
@@ -246,12 +267,15 @@ export default function ElderlyHomePage() {
         </View>
       </View>
 
-      <View className='ef-quick-card ef-quick-card--wide ef-counseling-entry' onClick={() => Taro.navigateTo({ url: '/pages/elderly/counseling/index' })}>
-          <View className='ef-round-icon ef-round-icon--white'>
-            <Text>人</Text>
-          </View>
-          <Text className='ef-quick-card__title'>心理咨询服务</Text>
-          <Text className='ef-quick-card__desc'>专业心理咨询师随时为您提供支持</Text>
+      <View className='ef-record-entry' onClick={() => Taro.redirectTo({ url: '/pages/elderly/record/index' })}>
+        <View className='ef-round-icon ef-round-icon--record'>
+          <Text>记</Text>
+        </View>
+        <View className='ef-record-entry__body'>
+          <Text className='ef-record-entry__title'>今日记录</Text>
+          <Text className='ef-record-entry__desc'>记录情绪、睡眠、饮食等健康数据</Text>
+        </View>
+        <Text className='ef-record-entry__trend'>↗</Text>
       </View>
 
       <ElderlyTabBar active='home' />

@@ -162,7 +162,10 @@ public class KinEchoApiService {
         if (!has(data, "family_id", "alert_type", "level", "message")) {
             return bad("missing required fields");
         }
-        long id = insertAlert(data, db.string(value(data, "source", "elderly")));
+        String source = db.string(value(data, "source", "elderly"));
+        long id = insertAlert(data, source);
+        auditCareAction(db.string(data.get("family_id")), data.get("elderly_id"), source, db.string(value(data, "created_by", source)),
+            "alert_created", db.string(data.get("message")), db.map("alert_id", id, "payload", data));
         return created(db.map("success", true, "alert_id", id));
     }
     public ResponseEntity<Map<String, Object>> handleAlert(long alertId, Map<String, Object> data) {
@@ -179,6 +182,10 @@ public class KinEchoApiService {
         if (updated == 0) {
             return notFound("alert not found");
         }
+        Map<String, Object> alert = db.one("SELECT elderly_id, title, message FROM family_alerts WHERE id = ? AND family_id = ? LIMIT 1",
+            alertId, body.get("family_id")).orElse(Map.of());
+        auditCareAction(db.string(body.get("family_id")), alert.get("elderly_id"), "family", db.string(value(body, "handled_by", "family")),
+            "alert_handled", db.string(value(body, "reply_message", alert.get("message"))), db.map("alert_id", alertId, "payload", body));
         return ok(db.ok());
     }
     public ResponseEntity<Map<String, Object>> markAlertRead(long alertId, String familyId) {
@@ -193,6 +200,10 @@ public class KinEchoApiService {
         if (updated == 0) {
             return notFound("alert not found");
         }
+        Map<String, Object> alert = db.one("SELECT elderly_id, title, message FROM family_alerts WHERE id = ? AND family_id = ? LIMIT 1",
+            alertId, familyId).orElse(Map.of());
+        auditCareAction(familyId, alert.get("elderly_id"), "family", "family", "alert_read",
+            db.string(value(alert, "title", "预警已读")), db.map("alert_id", alertId));
         return ok(db.ok());
     }
     public ResponseEntity<Map<String, Object>> replyAlert(long alertId, Map<String, Object> data) {
@@ -322,6 +333,8 @@ public class KinEchoApiService {
             return bad("missing required fields");
         }
         long id = insertAlert(data, "elderly");
+        auditCareAction(db.string(data.get("family_id")), data.get("elderly_id"), "elderly", "elderly",
+            "alert_created", db.string(data.get("message")), db.map("alert_id", id, "payload", data));
         return created(db.map("success", true, "alert_id", id));
     }
     public ResponseEntity<Map<String, Object>> getElderlyAlertReplies(Map<String, String> params) {
@@ -372,6 +385,8 @@ public class KinEchoApiService {
             """, familyId, elderlyId, moodType, score, value(data, "note", ""),
             value(data, "source", "manual"), value(data, "trigger_event", ""), value(data, "location", ""),
             value(data, "weather", ""), recordedAt);
+        auditCareAction(familyId, elderlyId, "elderly", "elderly", "mood_recorded",
+            moodTypeLabel(moodType) + " " + score + "分", db.map("record_id", id, "payload", data));
         return created(db.map("success", true, "record_id", id));
     }
     public ResponseEntity<Map<String, Object>> getElderlyMoods(Map<String, String> params) {
@@ -511,6 +526,155 @@ public class KinEchoApiService {
         roundAvg(trend);
         return ok(db.map("trend", trend, "days", days));
     }
+
+    public ResponseEntity<Map<String, Object>> getCareInsight(String familyId,
+                                                              Long elderlyId) {
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+
+        Map<String, Object> elderly = elderlyId != null && elderlyId > 0
+            ? db.one("""
+                SELECT id, name, phone
+                FROM users
+                WHERE family_id = ? AND user_type = 'elderly' AND is_active = 1 AND id = ?
+                LIMIT 1
+                """, familyId, elderlyId).orElse(null)
+            : db.one("""
+                SELECT id, name, phone
+                FROM users
+                WHERE family_id = ? AND user_type = 'elderly' AND is_active = 1
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """, familyId).orElse(null);
+        if (elderly == null) {
+            return notFound("elderly not found");
+        }
+
+        long resolvedElderlyId = db.longValue(elderly.get("id"), 0);
+        String elderlyName = db.string(elderly.get("name"));
+        LocalDate today = LocalDate.now(properties.zoneId);
+        String sinceYesterday = LocalDateTime.now(properties.zoneId).minusDays(1).format(DATE_TIME);
+        String sinceSevenDays = LocalDateTime.now(properties.zoneId).minusDays(7).format(DATE_TIME);
+
+        Map<String, Object> latestMood = db.one("""
+            SELECT *
+            FROM mood_records
+            WHERE family_id = ? AND elderly_id = ?
+            ORDER BY recorded_at DESC, id DESC
+            LIMIT 1
+            """, familyId, resolvedElderlyId).orElse(null);
+        Integer latestMoodScore = latestMood == null ? null : db.intValue(latestMood.get("mood_score"), 0);
+
+        List<Map<String, Object>> alerts = db.list("""
+            SELECT *
+            FROM family_alerts
+            WHERE family_id = ? AND elderly_id = ? AND is_active = 1 AND alert_type != 'media_display'
+            ORDER BY created_at DESC, id DESC
+            LIMIT 20
+            """, familyId, resolvedElderlyId);
+        List<Map<String, Object>> openAlerts = alerts.stream()
+            .filter(item -> !db.boolValue(item.get("handled")))
+            .toList();
+        long openAlertCount = openAlerts.size();
+        long highAlertCount = openAlerts.stream().filter(item -> "high".equals(db.string(item.get("level")))).count();
+        boolean hasHighAlert = highAlertCount > 0;
+        boolean hasMediumAlert = openAlerts.stream().anyMatch(item -> "medium".equals(db.string(item.get("level"))));
+
+        List<Map<String, Object>> allSchedules = db.list("""
+            SELECT *
+            FROM schedules
+            WHERE family_id = ? AND is_active = 1
+            ORDER BY schedule_time ASC, id ASC
+            """, familyId);
+        int weekday = today.getDayOfWeek().getValue() % 7;
+        List<Map<String, Object>> todaySchedules = allSchedules.stream()
+            .filter(item -> {
+                LocalDateTime scheduleTime = db.parseDateTime(item.get("schedule_time"));
+                String repeat = db.string(value(item, "repeat_type", "once"));
+                return switch (repeat) {
+                    case "daily" -> true;
+                    case "weekly" -> db.parseRepeatDays(item.get("repeat_days")).contains(weekday);
+                    case "monthly" -> scheduleTime != null && scheduleTime.getDayOfMonth() == today.getDayOfMonth();
+                    default -> scheduleTime != null && scheduleTime.toLocalDate().equals(today);
+                };
+            })
+            .toList();
+        long completedTasks = todaySchedules.stream()
+            .filter(item -> "completed".equals(db.string(item.get("status"))))
+            .count();
+        int completionRate = todaySchedules.isEmpty()
+            ? 0
+            : (int) Math.round(completedTasks * 100.0 / todaySchedules.size());
+
+        long pendingMessages = db.count("""
+            SELECT COUNT(*)
+            FROM family_messages
+            WHERE family_id = ? AND is_active = 1 AND played = 0
+            """, familyId);
+        long recentAiMessages = db.count("""
+            SELECT COUNT(*)
+            FROM ai_interactions
+            WHERE username = 'User' AND type = 'member' AND created_at >= ?
+            """, sinceYesterday);
+        long recentMediaPlays = db.count("""
+            SELECT COUNT(*)
+            FROM media_play_history
+            WHERE elderly_id = ? AND played_at >= ?
+            """, resolvedElderlyId, sinceSevenDays);
+        long activeFollowups = db.count("""
+            SELECT COUNT(*)
+            FROM consultations
+            WHERE family_id = ? AND elderly_id = ? AND status IN ('scheduled', 'in_progress')
+            """, familyId, resolvedElderlyId);
+        Map<String, Object> latestServiceRecord = db.one("""
+            SELECT note, scheduled_time, status
+            FROM consultations
+            WHERE family_id = ? AND elderly_id = ? AND note IS NOT NULL AND note != ''
+            ORDER BY scheduled_time DESC, id DESC
+            LIMIT 1
+            """, familyId, resolvedElderlyId).orElse(null);
+
+        String riskLevel = computeCaseRiskLevel(latestMoodScore, openAlertCount, hasHighAlert, hasMediumAlert);
+        Map<String, Object> latestOpenAlert = openAlerts.isEmpty() ? null : openAlerts.get(0);
+        String reason = careRiskReason(riskLevel, latestOpenAlert, latestMood, highAlertCount, openAlertCount,
+            todaySchedules.size(), completionRate, pendingMessages);
+        String nextStep = careNextStep(riskLevel, openAlertCount, todaySchedules.size(), completionRate, pendingMessages, activeFollowups);
+        String moodText = latestMood == null
+            ? "暂无情绪记录"
+            : moodTypeLabel(db.string(latestMood.get("mood_type"))) + " " + latestMoodScore + "分";
+        String latestServiceText = latestServiceRecord == null ? "" : db.string(latestServiceRecord.get("note"));
+        Map<String, Object> metrics = db.map(
+            "open_alerts", openAlertCount,
+            "high_alerts", highAlertCount,
+            "today_tasks", todaySchedules.size(),
+            "completed_tasks", completedTasks,
+            "completion_rate", completionRate,
+            "mood_score", latestMoodScore,
+            "pending_messages", pendingMessages,
+            "recent_ai_messages", recentAiMessages,
+            "recent_media_plays", recentMediaPlays,
+            "active_followups", activeFollowups
+        );
+
+        return ok(db.map(
+            "family_id", familyId,
+            "elderly_id", resolvedElderlyId,
+            "elderly_name", elderlyName,
+            "risk_level", riskLevel,
+            "status_label", careStatusLabel(riskLevel),
+            "summary", elderlyName + "今日" + careStatusLabel(riskLevel) + "，情绪状态：" + moodText + "，任务完成率：" + completionRate + "%。",
+            "reason", reason,
+            "next_step", nextStep,
+            "service_sop", careServiceSop(riskLevel, openAlertCount),
+            "family_message", careFamilyMessage(riskLevel, reason, latestServiceText),
+            "elderly_message", careElderlyMessage(riskLevel, pendingMessages),
+            "latest_service_record", latestServiceText,
+            "metrics", metrics,
+            "generated_at", LocalDateTime.now(properties.zoneId).format(DATE_TIME)
+        ));
+    }
+
     public ResponseEntity<Map<String, Object>> getFamilyInteractions(String username,
                                                                      int limit) {
         int normalized = Math.max(1, Math.min(limit, 500));
@@ -659,6 +823,8 @@ public class KinEchoApiService {
         if (updated == 0) {
             return notFound("schedule not found");
         }
+        auditCareAction(familyId, data.get("elderly_id"), "elderly", "elderly", "schedule_status_updated",
+            "照护任务状态更新为 " + status, db.map("schedule_id", scheduleId, "payload", data));
         return ok(db.ok());
     }
     public ResponseEntity<Map<String, Object>> createUser(Map<String, Object> data) {
@@ -948,11 +1114,14 @@ public class KinEchoApiService {
     }
 
     public ResponseEntity<Map<String, Object>> startServiceTask(long alertId) {
+        Map<String, Object> alert = db.one("SELECT family_id, elderly_id, message FROM family_alerts WHERE id = ? LIMIT 1", alertId).orElse(Map.of());
         db.update("""
             UPDATE family_alerts
             SET %s = 1, read_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """.formatted(db.readColumn()), alertId);
+        auditCareAction(db.string(alert.get("family_id")), alert.get("elderly_id"), "service", "service",
+            "service_task_started", db.string(value(alert, "message", "服务人员开始处理工单")), db.map("alert_id", alertId));
         return ok(db.map("success", true, "alert_id", alertId, "status", "processing"));
     }
 
@@ -960,6 +1129,7 @@ public class KinEchoApiService {
                                                                    Map<String, Object> data) {
         Map<String, Object> body = data == null ? Map.of() : data;
         String replyMessage = db.string(value(body, "reply_message", "服务端已完成处理"));
+        Map<String, Object> alert = db.one("SELECT family_id, elderly_id FROM family_alerts WHERE id = ? LIMIT 1", alertId).orElse(Map.of());
         db.update("""
             UPDATE family_alerts
             SET handled = 1,
@@ -970,6 +1140,8 @@ public class KinEchoApiService {
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """.formatted(db.readColumn()), replyMessage, alertId);
+        auditCareAction(db.string(alert.get("family_id")), alert.get("elderly_id"), "service", "service",
+            "service_task_completed", replyMessage, db.map("alert_id", alertId, "payload", body));
         return ok(db.map("success", true, "alert_id", alertId, "status", "completed"));
     }
 
@@ -1043,6 +1215,7 @@ public class KinEchoApiService {
             WHERE family_id = ? AND user_type = 'family' AND is_active = 1
             ORDER BY created_at ASC, id ASC
             """, familyId);
+        Map<String, Object> insight = getCareInsight(familyId, elderlyId).getBody();
 
         return ok(db.map(
             "family_id", familyId,
@@ -1051,7 +1224,8 @@ public class KinEchoApiService {
             "mood_records", moodRecords,
             "mood_trend", moodTrend,
             "consultations", consultations,
-            "family_contacts", familyContacts
+            "family_contacts", familyContacts,
+            "insight", insight
         ));
     }
 
@@ -1089,6 +1263,8 @@ public class KinEchoApiService {
             """, data.get("family_id"), data.get("elderly_id"), data.get("counselor_id"),
             value(data, "consultation_type", "phone"), data.get("scheduled_time"), value(data, "duration", 30),
             value(data, "status", "scheduled"), value(data, "note", ""));
+        auditCareAction(db.string(data.get("family_id")), data.get("elderly_id"), "service", "service",
+            "followup_created", db.string(value(data, "note", "创建随访任务")), db.map("consultation_id", id, "payload", data));
         return created(db.map("success", true, "consultation_id", id));
     }
 
@@ -1110,6 +1286,10 @@ public class KinEchoApiService {
         if (updated == 0) {
             return notFound("consultation not found");
         }
+        Map<String, Object> followup = db.one("SELECT elderly_id, note FROM consultations WHERE id = ? AND family_id = ? LIMIT 1",
+            consultationId, familyId).orElse(Map.of());
+        auditCareAction(familyId, followup.get("elderly_id"), "service", "service", "followup_status_updated",
+            "随访状态更新为 " + status, db.map("consultation_id", consultationId, "payload", data));
         return ok(db.map("success", true, "consultation_id", consultationId, "status", status));
     }
 
@@ -1151,6 +1331,8 @@ public class KinEchoApiService {
                 WHERE id = ? AND family_id = ? AND is_active = 1
                 """.formatted(db.readColumn()), content, alertId, familyId);
         }
+        auditCareAction(familyId, data.get("elderly_id"), "service", "service", "service_record_created",
+            content, db.map("consultation_id", consultationId, "alert_id", alertId > 0 ? alertId : null, "payload", data));
 
         return created(db.map(
             "success", true,
@@ -1782,13 +1964,15 @@ public class KinEchoApiService {
     }
     public ResponseEntity<Map<String, Object>> aiChat(Map<String, Object> data,
                                                       HttpHeaders headers) {
+        Map<String, Object> body = data == null ? Map.of() : data;
+        String message = db.string(value(body, "message", value(body, "text", "")));
+        String user = db.string(value(body, "user", "User"));
         try {
-            Map<String, Object> body = data == null ? Map.of() : data;
-            return ok(aiCompanion.chat(db.string(value(body, "message", value(body, "text", ""))), db.string(value(body, "user", "User")), origin(headers)));
+            return ok(aiCompanion.chat(message, user, origin(headers)));
         } catch (IllegalArgumentException ex) {
             return bad(ex.getMessage());
         } catch (Exception ex) {
-            return status(HttpStatus.SERVICE_UNAVAILABLE, db.map("error", ex.getMessage()));
+            return ok(aiCompanion.fallbackChat(message, user, ex.getMessage()));
         }
     }
     public ResponseEntity<Map<String, Object>> aiVoiceChat(MultipartFile file,
@@ -2141,6 +2325,140 @@ public class KinEchoApiService {
             case 6 -> "周六";
             default -> "周日";
         };
+    }
+
+    private String careStatusLabel(String riskLevel) {
+        return switch (riskLevel) {
+            case "high" -> "需要优先跟进";
+            case "medium" -> "建议持续关注";
+            default -> "今日状态平稳";
+        };
+    }
+
+    private String careRiskReason(String riskLevel,
+                                  Map<String, Object> latestOpenAlert,
+                                  Map<String, Object> latestMood,
+                                  long highAlertCount,
+                                  long openAlertCount,
+                                  int todayTasks,
+                                  int completionRate,
+                                  long pendingMessages) {
+        if (latestOpenAlert != null) {
+            String title = db.string(value(latestOpenAlert, "title", ""));
+            String label = blank(title) ? serviceAlertTypeLabel(db.string(latestOpenAlert.get("alert_type"))) : title;
+            String message = db.string(latestOpenAlert.get("message"));
+            if (highAlertCount > 0) {
+                return "存在 " + highAlertCount + " 条高优先级预警未处理，最近一条是「" + label + "」：" + message;
+            }
+            return "存在 " + openAlertCount + " 条待处理预警，最近一条是「" + label + "」：" + message;
+        }
+
+        int moodScore = latestMood == null ? 0 : db.intValue(latestMood.get("mood_score"), 0);
+        if (moodScore > 0 && moodScore <= 4) {
+            return "最近一次情绪评分为 " + moodScore + " 分，低于安全观察阈值，需要主动问候。";
+        }
+        if ("medium".equals(riskLevel) && moodScore > 0 && moodScore <= 6) {
+            return "最近一次情绪评分为 " + moodScore + " 分，建议持续观察情绪变化。";
+        }
+        if (todayTasks > 0 && completionRate < 60) {
+            return "今日照护任务完成率为 " + completionRate + "%，建议确认是否漏服、漏餐或未完成活动。";
+        }
+        if (pendingMessages > 0) {
+            return "还有 " + pendingMessages + " 条家属留言未播放，可优先提醒老人收听。";
+        }
+        return "今日暂无未处理预警，任务与互动没有明显异常。";
+    }
+
+    private String careNextStep(String riskLevel,
+                                long openAlertCount,
+                                int todayTasks,
+                                int completionRate,
+                                long pendingMessages,
+                                long activeFollowups) {
+        if ("high".equals(riskLevel)) {
+            return "服务人员先确认安全与位置，必要时联系家属；处理完成后补充服务记录。";
+        }
+        if (openAlertCount > 0) {
+            return "进入工单详情核实预警原因，10 分钟内给出处理结果或随访安排。";
+        }
+        if (activeFollowups > 0) {
+            return "按计划完成随访，并把结论回流给家属端。";
+        }
+        if (todayTasks > 0 && completionRate < 80) {
+            return "提醒老人完成剩余照护任务，家属端可查看完成率变化。";
+        }
+        if (pendingMessages > 0) {
+            return "提醒老人播放家属留言，增强亲情陪伴感。";
+        }
+        return "保持例行观察，明天继续自动汇总情绪、任务和互动情况。";
+    }
+
+    private List<String> careServiceSop(String riskLevel, long openAlertCount) {
+        if ("high".equals(riskLevel)) {
+            return List.of(
+                "5 分钟内确认老人安全状态，优先电话联系或现场查看。",
+                "记录预警原因、沟通对象和处理结果。",
+                "同步家属端处理进度，必要时创建下一次随访。"
+            );
+        }
+        if ("medium".equals(riskLevel) || openAlertCount > 0) {
+            return List.of(
+                "核对最近情绪、任务完成和留言播放情况。",
+                "联系老人或家属确认异常是否持续。",
+                "设置一次后续随访，观察 24 小时内变化。"
+            );
+        }
+        return List.of(
+            "保持日常巡检，关注情绪和任务趋势。",
+            "鼓励家属补充留言或回忆素材。",
+            "若连续两天缺少记录，主动发起轻量随访。"
+        );
+    }
+
+    private String careFamilyMessage(String riskLevel, String reason, String latestServiceText) {
+        if (!blank(latestServiceText)) {
+            return "服务人员最新反馈：" + latestServiceText;
+        }
+        if ("high".equals(riskLevel)) {
+            return "系统发现需要优先跟进的情况：" + reason + "。建议保持电话畅通，等待服务人员处理结果。";
+        }
+        if ("medium".equals(riskLevel)) {
+            return "今天建议多关注一下：" + reason + "。可以发送一条语音留言或确认照护任务。";
+        }
+        return "今日照护状态平稳，系统会继续自动观察情绪、任务和互动。";
+    }
+
+    private String careElderlyMessage(String riskLevel, long pendingMessages) {
+        if ("high".equals(riskLevel)) {
+            return "我们已经通知照护人员关注您，请先坐稳休息，需要时可以再次点击求助。";
+        }
+        if (pendingMessages > 0) {
+            return "家人给您留了新消息，可以先听一听，再和小心聊聊天。";
+        }
+        if ("medium".equals(riskLevel)) {
+            return "今天可以慢一点，先完成一个简单任务，再和小心说说感受。";
+        }
+        return "今天状态不错，照护人员和家人都在关注您。";
+    }
+
+    private void auditCareAction(String familyId,
+                                 Object elderlyId,
+                                 String actorRole,
+                                 String actorName,
+                                 String actionType,
+                                 String summary,
+                                 Object detail) {
+        if (blank(familyId)) {
+            return;
+        }
+        Object normalizedElderlyId = elderlyId == null || db.string(elderlyId).isBlank() ? null : elderlyId;
+        try {
+            db.insert("""
+                INSERT INTO care_audit_logs (family_id, elderly_id, actor_role, actor_name, action_type, summary, detail)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, familyId, normalizedElderlyId, actorRole, actorName, actionType, summary, db.toJson(detail));
+        } catch (Exception ignored) {
+        }
     }
 
     private Map<String, Object> weatherPayload(Object codeValue, Object temperatureValue, String source) {

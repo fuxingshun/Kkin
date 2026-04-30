@@ -1,6 +1,6 @@
 import { DEFAULT_FAMILY_ID } from '@/config/runtime';
 import { type Consultation, type FamilyUser, type MoodRecord } from '@/services/elderly';
-import { type FamilyAlert } from '@/services/family';
+import { type CareInsight, type FamilyAlert } from '@/services/family';
 import { formatDateTimeValue } from '@/utils/format';
 import { buildQueryString, request } from '@/utils/request';
 import { getCurrentServiceFamilyId } from '@/utils/serviceSession';
@@ -98,6 +98,7 @@ interface ServiceCaseDetailApi {
   mood_trend: Array<{ day: string; score: number }>;
   consultations: Consultation[];
   family_contacts: FamilyUser[];
+  insight?: CareInsight;
 }
 
 interface ServiceFollowupApi {
@@ -227,6 +228,7 @@ export async function getServiceCaseDetail(familyId = DEFAULT_FAMILY_ID, elderly
     moodTrend: data.mood_trend || [],
     consultations: data.consultations || [],
     familyContacts: data.family_contacts || [],
+    insight: data.insight || null,
   };
 }
 

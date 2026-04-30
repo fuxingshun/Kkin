@@ -42,6 +42,7 @@ import {
   getAdminServiceSummary,
   getAlertStats,
   getAlerts,
+  getCareInsight,
   getHealth,
   getMedia,
   getMoodStats,
@@ -54,6 +55,7 @@ import {
   type ApiAlert,
   type ApiAdminAnalytics,
   type ApiAdminServiceSummary,
+  type ApiCareInsight,
   type ApiLoginResult,
   type ApiMedia,
   type ApiMoodStats,
@@ -75,6 +77,16 @@ type UserFormState = {
 
 const ADMIN_SESSION_KEY = 'kin-admin-session';
 
+const pilotNavItems: Array<{ id: AdminPage; label: string; icon: LucideIcon }> = [
+  { id: 'dashboard', label: '运营总览', icon: LayoutDashboard },
+  { id: 'users', label: '家庭档案', icon: Users },
+  { id: 'content', label: '内容管理', icon: FileText },
+  { id: 'alerts', label: '风险队列', icon: AlertTriangle },
+  { id: 'service', label: '服务协同', icon: Briefcase },
+  { id: 'analytics', label: '数据分析', icon: BarChart3 },
+  { id: 'settings', label: '试点设置', icon: Settings },
+];
+
 const navItems: Array<{ id: AdminPage; label: string; icon: LucideIcon }> = [
   { id: 'dashboard', label: '总览', icon: LayoutDashboard },
   { id: 'users', label: '用户管理', icon: Users },
@@ -84,6 +96,8 @@ const navItems: Array<{ id: AdminPage; label: string; icon: LucideIcon }> = [
   { id: 'analytics', label: '数据分析', icon: BarChart3 },
   { id: 'settings', label: '系统设置', icon: Settings },
 ];
+
+const visibleNavItems = pilotNavItems.length ? pilotNavItems : navItems;
 
 /*
 const activityData = [
@@ -403,7 +417,7 @@ function AdminLayout({
           </div>
         </div>
         <nav className="admin-sidebar__nav">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const active = page === item.id;
             return (
@@ -477,6 +491,7 @@ function AdminNoticeDialog({ notice, onClose }: { notice: AdminNotice; onClose: 
 function DashboardPage({ notify }: { notify: Notify }) {
   const [summary, setSummary] = useState<ApiAdminServiceSummary | null>(null);
   const [analytics, setAnalytics] = useState<ApiAdminAnalytics | null>(null);
+  const [careInsight, setCareInsight] = useState<ApiCareInsight | null>(null);
   const [adminAlerts, setAdminAlerts] = useState<AdminAlert[]>([]);
   const [moodStats, setMoodStats] = useState<ApiMoodStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -487,11 +502,12 @@ function DashboardPage({ notify }: { notify: Notify }) {
     async function loadDashboard() {
       try {
         setLoading(true);
-        const [nextSummary, nextAnalytics, alertsResult, nextMoodStats] = await Promise.all([
+        const [nextSummary, nextAnalytics, alertsResult, nextMoodStats, nextCareInsight] = await Promise.all([
           getAdminServiceSummary(),
           getAdminAnalytics(undefined, { months: 6, days: 7 }),
           getAlerts(undefined, { limit: 30 }),
           getMoodStats(),
+          getCareInsight(),
         ]);
 
         if (!mounted) {
@@ -500,6 +516,7 @@ function DashboardPage({ notify }: { notify: Notify }) {
 
         setSummary(nextSummary);
         setAnalytics(nextAnalytics);
+        setCareInsight(nextCareInsight);
         setAdminAlerts(toAdminAlerts(alertsResult.alerts));
         setMoodStats(nextMoodStats);
       } catch (error) {
@@ -573,37 +590,37 @@ function DashboardPage({ notify }: { notify: Notify }) {
     id: row.elderly_id,
     rank: index + 1,
     name: row.elderly_name,
-    detail: `${row.open_alerts} alerts / ${row.active_consultations} followups`,
+    detail: `${row.open_alerts} 条风险 / ${row.active_consultations} 次随访`,
     risk: mapRiskLevel(row.risk_level),
   }));
   const dashboardStats = [
     {
-      label: 'Elderly Users',
+      label: '老人档案',
       value: String(analyticsSummary?.elderly_users ?? 0),
-      change: loading ? 'Syncing' : `Total ${analyticsSummary?.total_users ?? 0}`,
+      change: loading ? '同步中' : `总用户 ${analyticsSummary?.total_users ?? 0}`,
       icon: Users,
       tone: 'purple',
     },
     {
-      label: 'Family Users',
+      label: '家属账号',
       value: String(analyticsSummary?.family_users ?? 0),
-      change: loading ? 'Syncing' : `7d followups ${analyticsSummary?.followups ?? 0}`,
+      change: loading ? '同步中' : `7日随访 ${analyticsSummary?.followups ?? 0}`,
       icon: Shield,
       tone: 'pink',
     },
     {
-      label: 'Mood Records',
+      label: '情绪记录',
       value: String(analyticsSummary?.mood_records ?? moodStats?.overall?.total_records ?? 0),
       change: loading
-        ? 'Syncing'
-        : `Avg ${analyticsSummary ? analyticsSummary.avg_mood_score.toFixed(1) : (moodStats?.overall?.avg_score ?? 0).toFixed(1)}`,
+        ? '同步中'
+        : `平均 ${analyticsSummary ? analyticsSummary.avg_mood_score.toFixed(1) : (moodStats?.overall?.avg_score ?? 0).toFixed(1)} 分`,
       icon: Activity,
       tone: 'green',
     },
     {
-      label: 'Open Alerts',
+      label: '待处理风险',
       value: String(overview?.pending_alerts ?? adminAlerts.length),
-      change: loading ? 'Syncing' : `High risk ${overview?.high_risk_cases ?? 0}`,
+      change: loading ? '同步中' : `高风险 ${overview?.high_risk_cases ?? 0}`,
       icon: AlertTriangle,
       tone: 'orange',
     },
@@ -639,6 +656,34 @@ function DashboardPage({ notify }: { notify: Notify }) {
   return (
     <div className="admin-page-stack">
       <PageHeader title="平台总览" desc="实时监控平台运营数据和关键指标" />
+      <section className={`admin-panel admin-care-command admin-care-command--${careInsight?.risk_level || 'low'}`}>
+        <div className="admin-care-command__head">
+          <div>
+            <span className="admin-kicker">机构照护闭环</span>
+            <h2>{careInsight?.status_label || '正在同步照护洞察'}</h2>
+            <p>{careInsight?.summary || '系统会汇总任务、情绪、预警和服务记录，形成每日运营判断。'}</p>
+          </div>
+          <div className="admin-care-command__score">
+            <strong>{careInsight?.metrics?.completion_rate ?? 0}%</strong>
+            <span>任务完成率</span>
+          </div>
+        </div>
+        <div className="admin-care-command__grid">
+          <div>
+            <span>风险原因</span>
+            <strong>{careInsight?.reason || '暂无异常风险'}</strong>
+          </div>
+          <div>
+            <span>下一步</span>
+            <strong>{careInsight?.next_step || '保持例行观察'}</strong>
+          </div>
+          <div>
+            <span>服务回流</span>
+            <strong>{careInsight?.latest_service_record || '暂无新的服务记录'}</strong>
+          </div>
+        </div>
+      </section>
+
       <section className="admin-stat-grid">
         {dashboardStats.map((stat) => {
           const Icon = stat.icon;
@@ -672,8 +717,8 @@ function DashboardPage({ notify }: { notify: Notify }) {
                 <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip />
-                <Line type="monotone" dataKey="elderly" stroke="#3b82a6" strokeWidth={2} dot={{ fill: '#3b82a6', r: 3 }} name="鑰佷汉鐢ㄦ埛" />
-                <Line type="monotone" dataKey="family" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} name="瀹跺睘鐢ㄦ埛" />
+                <Line type="monotone" dataKey="elderly" stroke="#3b82a6" strokeWidth={2} dot={{ fill: '#3b82a6', r: 3 }} name="老人档案" />
+                <Line type="monotone" dataKey="family" stroke="#10b981" strokeWidth={2} dot={{ fill: '#10b981', r: 3 }} name="家属账号" />
               </LineChart>
             </ResponsiveContainer>
           </div>

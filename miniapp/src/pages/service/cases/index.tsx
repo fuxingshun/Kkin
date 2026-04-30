@@ -1,113 +1,134 @@
-import { useCallback, useMemo, useState } from 'react';
-import Taro, { useDidShow } from '@tarojs/taro';
+import { useMemo, useState } from 'react';
+import Taro from '@tarojs/taro';
 import { Input, Text, View } from '@tarojs/components';
 import { ServiceTabBar } from '@/components/ServiceTabBar';
-import { getServiceCases, type ServiceCase } from '@/services/service';
 
 const tabs = ['全部', '高风险', '中风险', '低风险'];
 
-function getRiskLabel(risk: ServiceCase['risk']) {
-  if (risk === 'high') return '高风险';
-  if (risk === 'medium') return '中风险';
-  return '低风险';
-}
-
-function getRiskTone(risk: ServiceCase['risk']) {
-  if (risk === 'high') return 'service-chip--red';
-  if (risk === 'medium') return 'service-chip--amber';
-  return 'service-chip--green';
-}
+const cases = [
+  {
+    id: '1',
+    name: '张翠花',
+    age: 72,
+    community: '阳光社区',
+    risk: 'high',
+    riskLabel: '高风险',
+    lastEmotion: '焦虑',
+    consultationCount: 8,
+    lastConsultation: '2026-04-24',
+    summary: '近期睡眠质量下降，独居时间较长，需要重点关注焦虑波动。',
+  },
+  {
+    id: '2',
+    name: '李秀英',
+    age: 68,
+    community: '幸福里社区',
+    risk: 'medium',
+    riskLabel: '中风险',
+    lastEmotion: '平稳',
+    consultationCount: 5,
+    lastConsultation: '2026-04-23',
+    summary: '家庭沟通存在压力，已建立稳定咨询节奏。',
+  },
+  {
+    id: '3',
+    name: '王大爷',
+    age: 75,
+    community: '春晖社区',
+    risk: 'medium',
+    riskLabel: '中风险',
+    lastEmotion: '孤独',
+    consultationCount: 6,
+    lastConsultation: '2026-04-22',
+    summary: '子女陪伴较少，社交活动参与度需要逐步提升。',
+  },
+  {
+    id: '4',
+    name: '赵奶奶',
+    age: 70,
+    community: '康乐社区',
+    risk: 'low',
+    riskLabel: '低风险',
+    lastEmotion: '愉快',
+    consultationCount: 3,
+    lastConsultation: '2026-04-20',
+    summary: '情绪状态较稳定，继续保持每周一次轻量跟进。',
+  },
+];
 
 export default function ServiceCasesPage() {
   const [activeTab, setActiveTab] = useState(0);
   const [keyword, setKeyword] = useState('');
-  const [cases, setCases] = useState<ServiceCase[]>([]);
 
-  const loadData = useCallback(async () => {
-    try {
-      const result = await getServiceCases();
-      setCases(result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '个案加载失败';
-      Taro.showToast({ title: message, icon: 'none' });
-    }
-  }, []);
-
-  useDidShow(() => {
-    void loadData();
-  });
-
-  const filteredList = useMemo(() => {
+  const filteredCases = useMemo(() => {
+    const value = keyword.trim();
     return cases.filter((item) => {
-      const riskMatched = activeTab === 0 || getRiskLabel(item.risk) === tabs[activeTab];
-      const keywordValue = keyword.trim();
-      const keywordMatched = !keywordValue || item.name.includes(keywordValue) || (item.familyContactName || '').includes(keywordValue);
-      return riskMatched && keywordMatched;
+      const tabMatched = activeTab === 0 || item.riskLabel === tabs[activeTab];
+      const keywordMatched = !value || item.name.includes(value) || item.community.includes(value);
+      return tabMatched && keywordMatched;
     });
-  }, [activeTab, cases, keyword]);
+  }, [activeTab, keyword]);
 
   return (
-    <View className='service-page'>
-      <View className='service-topbar'>
-        <Text className='service-topbar__title'>重点老人列表</Text>
-        <Input
-          className='service-search'
-          value={keyword}
-          placeholder='搜索老人姓名或家属'
-          onInput={(e) => setKeyword(e.detail.value)}
-        />
+    <View className='service-page service-page--figma sc-page'>
+      <View className='sc-header'>
+        <Text className='sc-title'>个案管理</Text>
+        <View className='sc-search-row'>
+          <Input
+            className='sc-search'
+            value={keyword}
+            placeholder='搜索老人姓名或社区'
+            onInput={(event) => setKeyword(event.detail.value)}
+          />
+        </View>
       </View>
 
-      <View className='service-tabs'>
+      <View className='sc-tabs'>
         {tabs.map((tab, index) => (
-          <View
+          <Text
             key={tab}
-            className={`service-tab ${activeTab === index ? 'service-tab--active' : ''}`}
+            className={`sc-tab ${activeTab === index ? 'sc-tab--active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
-            <Text>{tab}</Text>
-          </View>
+            {tab}
+          </Text>
         ))}
       </View>
 
-      <View className='service-list service-list--loose'>
-        {filteredList.length ? (
-          filteredList.map((item) => (
-            <View
-              className='service-case-card'
-              key={item.elderlyId}
-              onClick={() => Taro.navigateTo({ url: `/pages/service/case-detail/index?elderlyId=${item.elderlyId}&alertId=${item.latestAlertId || ''}` })}
-            >
-              <View className='service-case-card__head'>
-                <View className='service-case-row__avatar'>
-                  <Text>{item.name.slice(0, 1)}</Text>
-                </View>
-                <View className='service-case-row__body'>
-                  <Text className='service-card-title'>{item.name}</Text>
-                  <Text className='service-card-meta'>家属联系人：{item.familyContactName || '未绑定'}</Text>
-                </View>
-                <Text className={`service-chip ${getRiskTone(item.risk)}`}>
-                  {getRiskLabel(item.risk)}
-                </Text>
+      <View className='sc-list'>
+        {filteredCases.map((item) => (
+          <View
+            className='sc-case-card'
+            key={item.id}
+            onClick={() => Taro.navigateTo({ url: `/pages/service/case-detail/index?elderlyId=${item.id}` })}
+          >
+            <View className='sc-case-card__head'>
+              <View className='sc-avatar'>
+                <Text>{item.name.slice(0, 1)}</Text>
               </View>
-              <View className='service-case-card__metrics'>
-                <View>
-                  <Text className='service-card-meta'>最近情绪</Text>
-                  <Text className='service-card-title'>{item.lastEmotion}</Text>
-                </View>
-                <View>
-                  <Text className='service-card-meta'>待处理告警</Text>
-                  <Text className='service-card-title'>{item.openAlertCount} 条</Text>
-                </View>
+              <View className='sc-case-card__identity'>
+                <Text className='sc-case-card__name'>{item.name}</Text>
+                <Text className='sc-case-card__meta'>{item.age}岁 · {item.community}</Text>
+              </View>
+              <Text className={`sc-risk sc-risk--${item.risk}`}>{item.riskLabel}</Text>
+            </View>
+            <Text className='sc-case-card__summary'>{item.summary}</Text>
+            <View className='sc-case-card__stats'>
+              <View>
+                <Text className='sc-stat-label'>最近情绪</Text>
+                <Text className='sc-stat-value'>{item.lastEmotion}</Text>
+              </View>
+              <View>
+                <Text className='sc-stat-label'>咨询次数</Text>
+                <Text className='sc-stat-value'>{item.consultationCount}次</Text>
+              </View>
+              <View>
+                <Text className='sc-stat-label'>最近咨询</Text>
+                <Text className='sc-stat-value'>{item.lastConsultation}</Text>
               </View>
             </View>
-          ))
-        ) : (
-          <View className='service-case-card'>
-            <Text className='service-card-title'>暂无匹配个案</Text>
-            <Text className='service-card-meta'>当前筛选条件下没有待跟进的老人。</Text>
           </View>
-        )}
+        ))}
       </View>
 
       <ServiceTabBar active='cases' />

@@ -1,4 +1,5 @@
 import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
+import { type CareInsight } from '@/services/family';
 import { getUploadMediaUrl, getUploadThumbnailUrl } from '@/utils/media';
 import { buildQueryString, request } from '@/utils/request';
 import { getElderlySession } from '@/utils/session';
@@ -457,6 +458,19 @@ export async function getLatestMood(
   );
   return data.record;
 }
+
+export async function getElderlyCareInsight(
+  familyId = DEFAULT_FAMILY_ID,
+  elderlyId = DEFAULT_ELDERLY_ID
+) {
+  const params = buildQueryString({
+    family_id: resolveFamilyId(familyId),
+    elderly_id: String(resolveElderlyId(elderlyId)),
+  });
+  return request<CareInsight>(`/care/insight?${params}`);
+}
+
+export type { CareInsight };
 
 export async function getCounselors() {
   const data = await request<{ counselors: Counselor[] }>('/counselors');

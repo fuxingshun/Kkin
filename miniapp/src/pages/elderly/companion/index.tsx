@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Taro, { useDidHide, useDidShow } from '@tarojs/taro';
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components';
 import { chatWithAi, voiceChatWithAi } from '@/services/aiCompanion';
-import { getAiInteractions, type AiInteraction } from '@/services/elderly';
+import { getAiInteractions, getElderlyCareInsight, type AiInteraction, type CareInsight } from '@/services/elderly';
 import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 
 type RecorderStopResult = {
@@ -89,6 +89,7 @@ export default function ElderlyCompanionPage() {
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [showQuickTopics, setShowQuickTopics] = useState(true);
+  const [careInsight, setCareInsight] = useState<CareInsight | null>(null);
   const [chatScrollTop, setChatScrollTop] = useState(0);
   const audioContextRef = useRef<Taro.InnerAudioContext | null>(null);
   const audioQueueRef = useRef<string[]>([]);
@@ -178,8 +179,17 @@ export default function ElderlyCompanionPage() {
     }
   }, []);
 
+  const loadCareInsight = useCallback(async () => {
+    try {
+      setCareInsight(await getElderlyCareInsight());
+    } catch (error) {
+      console.warn('[elderly-companion] care insight unavailable', error);
+    }
+  }, []);
+
   useDidShow(() => {
     void loadHistory();
+    void loadCareInsight();
   });
 
   const visibleMessages = useMemo(() => {
@@ -243,6 +253,13 @@ export default function ElderlyCompanionPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : '发送失败';
       Taro.showToast({ title: message, icon: 'none' });
+      appendMessage({
+        id: Date.now() + 2,
+        username: '小心',
+        type: 'ai',
+        content: '我这边连接有点不稳定，但我还在。您可以先慢慢说，我会继续陪您记录。',
+        createtime: Date.now(),
+      });
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -292,6 +309,16 @@ export default function ElderlyCompanionPage() {
         });
       }
 
+      if (!result.transcript && !result.reply) {
+        appendMessage({
+          id: Date.now() + 2,
+          username: '小心',
+          type: 'ai',
+          content: '我刚才没有听清楚。您可以再说一遍，也可以点下面的文字输入。',
+          createtime: Date.now(),
+        });
+      }
+
       if (result.audioUrl) {
         playAudio(result.audioUrl);
       } else if (result.audioError) {
@@ -301,6 +328,13 @@ export default function ElderlyCompanionPage() {
       Taro.hideLoading();
       const message = error instanceof Error ? error.message : '语音发送失败';
       Taro.showToast({ title: message, icon: 'none' });
+      appendMessage({
+        id: Date.now() + 3,
+        username: '小心',
+        type: 'ai',
+        content: '语音暂时没有识别成功。您先别着急，可以再录一次，或者直接打字给我。',
+        createtime: Date.now(),
+      });
     } finally {
       sendingRef.current = false;
       setSending(false);
@@ -482,6 +516,21 @@ export default function ElderlyCompanionPage() {
         </View>
 
         <Text className='ef-topbar__action' onClick={loadHistory}>⋯</Text>
+      </View>
+
+      <View className='ef-care-suggestion'>
+        <View>
+          <Text className='ef-care-suggestion__label'>今日关怀建议</Text>
+          <Text className='ef-care-suggestion__title'>{careInsight?.status_label || '正在同步'}</Text>
+          <Text className='ef-care-suggestion__text'>
+            {careInsight?.elderly_message || '先慢慢说，小心会陪您记录今天的感受。'}
+          </Text>
+        </View>
+        {careInsight?.next_step ? (
+          <Text className='ef-care-suggestion__action' onClick={() => sendMessage(careInsight.next_step)}>
+            聊聊这件事
+          </Text>
+        ) : null}
       </View>
 
       <ScrollView className='ef-chat-list' scrollTop={chatScrollTop} scrollWithAnimation scrollY>

@@ -1,7 +1,7 @@
 import Taro from '@tarojs/taro';
 import { Text, View } from '@tarojs/components';
 
-type ElderlyNavKey = 'home' | 'companion' | 'memories' | 'record' | 'profile';
+type ElderlyNavKey = 'home' | 'companion' | 'memories' | 'consulting' | 'record' | 'profile';
 
 interface ElderlyTabBarProps {
   active: ElderlyNavKey;
@@ -11,7 +11,7 @@ const elderlyNavItems: Array<{ key: ElderlyNavKey; label: string; icon: string; 
   { key: 'home', label: '首页', icon: '⌂', url: '/pages/elderly/home/index' },
   { key: 'companion', label: '陪伴', icon: '♡', url: '/pages/elderly/companion/index' },
   { key: 'memories', label: '回忆', icon: '▧', url: '/pages/elderly/memories/index' },
-  { key: 'record', label: '记录', icon: '▤', url: '/pages/elderly/record/index' },
+  { key: 'consulting', label: '咨询', icon: '人', url: '/pages/elderly/psychological-consulting/index' },
   { key: 'profile', label: '我的', icon: '人', url: '/pages/elderly/profile/index' },
 ];
 

@@ -1,6 +1,10 @@
 import { DEFAULT_CHAT_USERNAME } from '@/config/runtime';
 import { getActiveApiOrigin, request, uploadFile } from '@/utils/request';
 
+const AI_CHAT_TIMEOUT = 18000;
+const AI_SPEAK_TIMEOUT = 12000;
+const AI_VOICE_CHAT_TIMEOUT = 120000;
+
 export interface AiSpeakResult {
   success?: boolean;
   audioUrl: string;
@@ -66,6 +70,7 @@ export async function speakWithAi(text: string, user = DEFAULT_CHAT_USERNAME): P
       user,
       text,
     },
+    timeout: AI_SPEAK_TIMEOUT,
   });
 
   return normalizeSpeakResult(data);
@@ -78,6 +83,7 @@ export async function chatWithAi(message: string, user = DEFAULT_CHAT_USERNAME):
       user,
       message,
     },
+    timeout: AI_CHAT_TIMEOUT,
   });
 
   const speakResult = normalizeSpeakResult(data);
@@ -95,6 +101,7 @@ export async function voiceChatWithAi(filePath: string, user = DEFAULT_CHAT_USER
     formData: {
       user,
     },
+    timeout: AI_VOICE_CHAT_TIMEOUT,
   });
 
   const speakResult = normalizeSpeakResult(data);

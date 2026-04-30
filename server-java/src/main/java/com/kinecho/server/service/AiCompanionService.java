@@ -27,6 +27,9 @@ import java.util.Map;
 
 @Service
 public class AiCompanionService {
+    private static final int INTERACTIVE_CHAT_TIMEOUT_SECONDS = 10;
+    private static final int INTERACTIVE_TTS_TIMEOUT_SECONDS = 4;
+
     private final KinEchoMapper db;
     private final AiInteractionMapper aiInteractionMapper;
     private final KinEchoProperties properties;
@@ -90,22 +93,32 @@ public class AiCompanionService {
             throw new IllegalArgumentException("missing message");
         }
         String username = normalizeUser(user);
-        recordInteraction("member", content, username, "text");
+        safeRecordInteraction("member", content, username, "text");
 
         String reply;
-        String chatProvider = "bailian";
+        String chatProvider = "local";
         String providerError = "";
-        try {
-            reply = callBailianChat(content);
-        } catch (Exception ex) {
-            providerError = ex.getMessage();
-            chatProvider = "local";
+        if (canUseBailianChat()) {
+            chatProvider = "bailian";
+            try {
+                reply = callBailianChat(content);
+            } catch (Exception ex) {
+                providerError = ex.getMessage();
+                chatProvider = "local";
+                reply = localReply(content);
+            }
+        } else {
+            if (!"local".equals(properties.aiChatProvider)) {
+                providerError = "kinecho.bailian-api-key is not configured";
+            }
             reply = localReply(content);
         }
         reply = sanitizeReply(reply);
-        recordInteraction("ai", reply, username, "text");
+        safeRecordInteraction("ai", reply, username, "text");
 
-        SpeechResult speech = synthesizeSpeech(reply, origin);
+        SpeechResult speech = "bailian".equals(chatProvider)
+            ? synthesizeSpeech(reply, origin, INTERACTIVE_TTS_TIMEOUT_SECONDS)
+            : new SpeechResult("", providerError.isBlank() ? "" : "AI voice is temporarily unavailable; text fallback was used.", "local");
         return db.map(
             "success", true,
             "message", content,
@@ -115,6 +128,24 @@ public class AiCompanionService {
             "audio_url", speech.url,
             "audio_error", speech.error,
             "tts_provider", speech.provider
+        );
+    }
+
+    public Map<String, Object> fallbackChat(String message, String user, String error) {
+        String content = message == null ? "" : message.trim();
+        String username = normalizeUser(user);
+        String reply = sanitizeReply(localReply(content));
+        safeRecordInteraction("member", content, username, "text");
+        safeRecordInteraction("ai", reply, username, "text");
+        return db.map(
+            "success", true,
+            "message", content,
+            "reply", reply,
+            "chat_provider", "local",
+            "provider_error", error == null ? "" : error,
+            "audio_url", "",
+            "audio_error", "AI service is temporarily unavailable; text fallback was used.",
+            "tts_provider", "local"
         );
     }
 
@@ -160,7 +191,6 @@ public class AiCompanionService {
     }
 
     private String callBailianChat(String message) throws Exception {
-        assertBailianApiKey();
         Map<String, Object> payload = db.map(
             "model", properties.bailianChatModel,
             "messages", List.of(
@@ -177,7 +207,7 @@ public class AiCompanionService {
             properties.bailianCompatibleBaseUrl + "/chat/completions",
             payload,
             bearer(properties.bailianApiKey),
-            properties.bailianChatTimeoutSeconds
+            interactiveTimeout(properties.bailianChatTimeoutSeconds, INTERACTIVE_CHAT_TIMEOUT_SECONDS)
         );
         return extractChatReply(response);
     }
@@ -302,8 +332,13 @@ public class AiCompanionService {
     }
 
     private SpeechResult synthesizeSpeech(String text, String origin) {
+        return synthesizeSpeech(text, origin, properties.bailianTtsTimeoutSeconds);
+    }
+
+    private SpeechResult synthesizeSpeech(String text, String origin, int timeoutSeconds) {
         try {
             assertBailianApiKey();
+            int timeout = Math.max(1, timeoutSeconds);
             Map<String, Object> payload = db.map(
                 "model", properties.bailianTtsModel,
                 "input", db.map(
@@ -316,13 +351,13 @@ public class AiCompanionService {
                 properties.bailianApiBaseUrl + "/services/aigc/multimodal-generation/generation",
                 payload,
                 bearer(properties.bailianApiKey),
-                properties.bailianTtsTimeoutSeconds
+                timeout
             );
             String audioUrl = nestedString(response, "output", "audio", "url");
             if (audioUrl.isBlank()) {
                 return new SpeechResult("", "Bailian TTS did not return audio url: " + compactJson(response), "bailian");
             }
-            byte[] audio = downloadBytes(audioUrl, properties.bailianTtsTimeoutSeconds);
+            byte[] audio = downloadBytes(audioUrl, timeout);
             String format = properties.bailianTtsFileExtension.isBlank() ? "wav" : properties.bailianTtsFileExtension;
             String filename = "ai-" + Instant.now().toEpochMilli() + "." + format;
             Path target = properties.aiAudioDir.resolve(filename);
@@ -469,6 +504,23 @@ public class AiCompanionService {
         row.setCreatetime(Instant.now().toEpochMilli());
         row.setTimetext(db.nowString());
         aiInteractionMapper.insert(row);
+    }
+
+    private void safeRecordInteraction(String type, String content, String username, String way) {
+        try {
+            recordInteraction(type, content, username, way);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean canUseBailianChat() {
+        return !"local".equals(properties.aiChatProvider)
+            && properties.bailianApiKey != null
+            && !properties.bailianApiKey.isBlank();
+    }
+
+    private int interactiveTimeout(int configuredSeconds, int maxSeconds) {
+        return Math.max(1, Math.min(Math.max(1, configuredSeconds), maxSeconds));
     }
 
     private String sanitizeReply(String reply) {

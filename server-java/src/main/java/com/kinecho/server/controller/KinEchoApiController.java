@@ -183,6 +183,12 @@ public class KinEchoApiController {
         return service.getMoodTrend(params);
     }
 
+    @GetMapping("/care/insight")
+    public ResponseEntity<Map<String, Object>> getCareInsight(@RequestParam(required = false) String family_id,
+                                                              @RequestParam(required = false) Long elderly_id) {
+        return service.getCareInsight(family_id, elderly_id);
+    }
+
     @GetMapping("/family/interactions")
     public ResponseEntity<Map<String, Object>> getFamilyInteractions(@RequestParam(defaultValue = "User") String username,
                                                                          @RequestParam(defaultValue = "100") int limit) {

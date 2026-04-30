@@ -39,10 +39,15 @@ export default function ServiceCaseDetailPage() {
   });
 
   const caseInfo = detail?.caseInfo;
+  const insight = detail?.insight;
   const familyContact = detail?.familyContacts?.[0];
   const latestMood = detail?.moodRecords?.[0];
 
   const warningText = useMemo(() => {
+    if (insight?.reason) {
+      return insight.reason;
+    }
+
     if (!caseInfo) {
       return '请先从重点老人列表进入具体个案。';
     }
@@ -56,7 +61,7 @@ export default function ServiceCaseDetailPage() {
     }
 
     return '当前状态相对稳定，建议保持例行跟进节奏。';
-  }, [caseInfo, latestMood?.mood_score]);
+  }, [caseInfo, insight?.reason, latestMood?.mood_score]);
 
   async function handleCreateRecord() {
     if (!elderlyId) {
@@ -146,6 +151,24 @@ export default function ServiceCaseDetailPage() {
           <View className='service-info-box'>
             <Text className='service-card-meta'>联系电话</Text>
             <Text className='service-card-title'>{familyContact?.phone || '暂无号码'}</Text>
+          </View>
+        </View>
+      </View>
+
+      <View className={`service-section service-insight service-insight--${insight?.risk_level || caseInfo?.risk || 'low'}`}>
+        <View className='service-follow-card'>
+          <View className='service-follow-card__head'>
+            <Text className='service-card-title'>处理 SOP · {insight?.status_label || '待同步'}</Text>
+            <Text className='service-chip'>{insight?.metrics?.completion_rate ?? 0}% 完成</Text>
+          </View>
+          <Text className='service-card-text'>{insight?.reason || warningText}</Text>
+          <Text className='service-card-meta'>下一步：{insight?.next_step || '先核实预警，再记录处理结果。'}</Text>
+          <View className='service-sop-list'>
+            {(insight?.service_sop?.length ? insight.service_sop : ['确认老人安全状态', '联系家属同步处理进展', '补充服务记录并安排随访']).map((item, index) => (
+              <Text className='service-sop-item' key={`${index}-${item}`}>
+                {index + 1}. {item}
+              </Text>
+            ))}
           </View>
         </View>
       </View>

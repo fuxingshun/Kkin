@@ -1,6 +1,6 @@
 export default definePageConfig({
   navigationStyle: 'custom',
-  navigationBarTitleText: '个案管理',
+  navigationBarTitleText: '咨询管理',
   navigationBarBackgroundColor: '#FAFAFF',
   navigationBarTextStyle: 'black',
 });

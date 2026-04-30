@@ -514,6 +514,20 @@ public class KinEchoMapper {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """.formatted(id, varchar64, integer, integer, varchar64, integer, varchar64, text));
+
+        jdbc.execute("""
+            CREATE TABLE IF NOT EXISTS care_audit_logs (
+                id %s,
+                family_id %s NOT NULL,
+                elderly_id %s,
+                actor_role %s NOT NULL,
+                actor_name %s,
+                action_type %s NOT NULL,
+                summary %s,
+                detail %s,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """.formatted(id, varchar64, integer, varchar32, varchar64, varchar64, text, text));
     }
 
     private void migrateSchema() {
@@ -631,6 +645,16 @@ public class KinEchoMapper {
         migrateColumns("media_feedback", List.of(
             "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         ));
+        migrateColumns("care_audit_logs", List.of(
+            "family_id " + varchar64,
+            "elderly_id " + bigInt,
+            "actor_role " + varchar32,
+            "actor_name " + varchar64,
+            "action_type " + varchar64,
+            "summary " + text,
+            "detail " + text,
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
 
         safeUpdate("UPDATE users SET is_active = 1 WHERE is_active IS NULL");
         safeUpdate("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL");
@@ -697,6 +721,8 @@ public class KinEchoMapper {
         createIndex("idx_family_alerts_family_id", "family_alerts", "family_id");
         createIndex("idx_family_alerts_created_at", "family_alerts", "created_at DESC");
         createIndex("idx_family_alerts_handled", "family_alerts", "handled, created_at DESC");
+        createIndex("idx_care_audit_family_created", "care_audit_logs", "family_id, created_at DESC");
+        createIndex("idx_care_audit_elderly_created", "care_audit_logs", "elderly_id, created_at DESC");
     }
 
     private void createIndex(String name, String table, String columns) {

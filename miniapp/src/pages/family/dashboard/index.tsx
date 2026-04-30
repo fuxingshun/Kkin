@@ -4,6 +4,7 @@ import { Text, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
 import {
   getAlertStats,
+  getCareInsight,
   getFamilyMessages,
   getFamilySchedules,
   getFamilyUsers,
@@ -12,6 +13,7 @@ import {
   moodLabelMap,
   queryFamilyMoodRecords,
   type FamilyMessage,
+  type CareInsight,
   type FamilyUser,
   type MoodRecord,
   type MoodStatsResponse,
@@ -116,6 +118,7 @@ export default function FamilyDashboardPage() {
   const [recentPlays, setRecentPlays] = useState<RecentPlay[]>([]);
   const [todayInteractionCount, setTodayInteractionCount] = useState(0);
   const [latestInteraction, setLatestInteraction] = useState('');
+  const [careInsight, setCareInsight] = useState<CareInsight | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -130,9 +133,10 @@ export default function FamilyDashboardPage() {
         getAlertStats(),
         getRecentPlays(undefined, 5),
         getInteractionHistory(undefined, 60),
+        getCareInsight(),
       ]);
 
-      const [usersResult, messagesResult, schedulesResult, moodsResult, moodStatsResult, alertStatsResult, recentPlaysResult, interactionResult] =
+      const [usersResult, messagesResult, schedulesResult, moodsResult, moodStatsResult, alertStatsResult, recentPlaysResult, interactionResult, insightResult] =
         results;
       let hasFailed = false;
 
@@ -186,6 +190,12 @@ export default function FamilyDashboardPage() {
         hasFailed = true;
         setTodayInteractionCount(0);
         setLatestInteraction('');
+      }
+
+      if (insightResult.status === 'fulfilled') {
+        setCareInsight(insightResult.value);
+      } else {
+        hasFailed = true;
       }
 
       if (hasFailed) {
@@ -250,6 +260,35 @@ export default function FamilyDashboardPage() {
       </View>
 
       <View className='ff-stack ff-stack--overlap'>
+        <View className={`ff-card ff-care-insight ff-care-insight--${careInsight?.risk_level || 'low'}`}>
+          <View className='ff-section-head'>
+            <View>
+              <Text className='ff-kicker'>今日是否安心</Text>
+              <Text className='ff-section-title'>{careInsight?.status_label || '正在同步照护状态'}</Text>
+              <Text className='ff-card-subtitle'>
+                {careInsight?.family_message || '系统正在汇总任务完成、情绪、留言和服务处理状态。'}
+              </Text>
+            </View>
+            <Text className={`ff-chip ${careInsight?.risk_level === 'high' ? 'ff-chip--amber' : 'ff-chip--green'}`}>
+              {careInsight?.metrics?.completion_rate ?? completionRate}%
+            </Text>
+          </View>
+          <View className='ff-mini-grid'>
+            <View className='ff-mini-card ff-mini-card--blue'>
+              <Text>{careInsight?.metrics?.open_alerts ?? alertStats?.status_stats.unhandled ?? 0}</Text>
+              <Text>待处理</Text>
+            </View>
+            <View className='ff-mini-card ff-mini-card--green'>
+              <Text>{careInsight?.metrics?.active_followups ?? 0}</Text>
+              <Text>随访中</Text>
+            </View>
+          </View>
+          <View className='ff-warning-row'>
+            <Text>下一步</Text>
+            <Text>{careInsight?.next_step || '保持日常观察，异常会同步到服务人员端。'}</Text>
+          </View>
+        </View>
+
         <View className='ff-card'>
           <View className='ff-section-head'>
             <View>

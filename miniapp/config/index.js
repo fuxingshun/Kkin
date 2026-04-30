@@ -5,6 +5,14 @@ function normalizeApiBaseUrl(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
+function isLocalDevelopmentApiBaseUrl(value) {
+  const normalized = normalizeApiBaseUrl(value);
+  return /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/api$/i.test(normalized) ||
+    /^https?:\/\/10\./i.test(normalized) ||
+    /^https?:\/\/192\.168\./i.test(normalized) ||
+    /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\./i.test(normalized);
+}
+
 function getDetectedLanApiBaseUrls() {
   const ignoredInterfacePattern = /vmware|virtualbox|veth|docker|loopback|wsl|hyper-v/i;
   const candidates = [];
@@ -27,9 +35,14 @@ function getDetectedLanApiBaseUrls() {
         /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip);
 
       if (isPrivateLan) {
-        const priority = ip.startsWith('192.168.') ? 0 : /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) ? 1 : 2;
+        const interfacePriority = /wlan|wi-?fi|无线/i.test(name)
+          ? 0
+          : /ethernet|以太网/i.test(name)
+            ? 1
+            : 2;
+        const networkPriority = ip.startsWith('192.168.') ? 0 : /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip) ? 1 : 2;
         candidates.push({
-          priority,
+          priority: networkPriority * 10 + interfacePriority,
           url: `http://${ip}:8000/api`,
         });
       }
@@ -44,11 +57,15 @@ function getApiBaseUrls() {
     .split(',')
     .map(normalizeApiBaseUrl)
     .filter(Boolean);
+  const lanFallbacks = getDetectedLanApiBaseUrls();
+  const externalConfigured = configured.filter((url) => !isLocalDevelopmentApiBaseUrl(url));
+  const localConfigured = configured.filter(isLocalDevelopmentApiBaseUrl);
 
-  const candidates = configured.length ? configured : ['http://127.0.0.1:8000/api'];
-  const withLanFallbacks = [...candidates, ...getDetectedLanApiBaseUrls()];
+  const candidates = configured.length
+    ? [...externalConfigured, ...lanFallbacks, ...localConfigured, 'http://127.0.0.1:8000/api']
+    : [...lanFallbacks, 'http://127.0.0.1:8000/api'];
 
-  return Array.from(new Set(withLanFallbacks.map(normalizeApiBaseUrl).filter(Boolean)));
+  return Array.from(new Set(candidates.map(normalizeApiBaseUrl).filter(Boolean)));
 }
 
 const apiBaseUrls = getApiBaseUrls();

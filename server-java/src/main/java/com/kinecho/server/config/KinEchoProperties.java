@@ -38,15 +38,15 @@ public class KinEchoProperties {
     public String bailianAsrFileBaseUrl = "";
     public int bailianAsrTimeoutSeconds = 90;
     public int bailianAsrPollIntervalMillis = 800;
-    public String bailianChatModel = "qwen3.5-plus";
-    public double bailianChatTemperature = 0.8;
-    public int bailianChatMaxTokens = 500;
-    public int bailianChatTimeoutSeconds = 45;
+    public String bailianChatModel = "qwen-turbo";
+    public double bailianChatTemperature = 0.7;
+    public int bailianChatMaxTokens = 240;
+    public int bailianChatTimeoutSeconds = 10;
     public String bailianTtsModel = "qwen3-tts-flash";
     public String bailianTtsVoice = "Serena";
     public String bailianTtsLanguageType = "Chinese";
     public String bailianTtsFileExtension = "wav";
-    public int bailianTtsTimeoutSeconds = 60;
+    public int bailianTtsTimeoutSeconds = 4;
 
     public boolean redisEnabled = false;
     public String redisHost = "127.0.0.1";

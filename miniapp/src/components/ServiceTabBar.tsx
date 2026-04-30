@@ -1,18 +1,23 @@
 import Taro from '@tarojs/taro';
 import { Text, View } from '@tarojs/components';
 
-type ServiceNavKey = 'workspace' | 'cases' | 'tasks' | 'followup' | 'profile';
+type ServiceNavKey = 'workspace' | 'consultations' | 'cases' | 'schedule' | 'tasks' | 'followup' | 'profile';
 
 interface ServiceTabBarProps {
   active: ServiceNavKey;
 }
 
-const serviceNavItems: Array<{ key: ServiceNavKey; label: string; icon: string; url: string }> = [
-  { key: 'workspace', label: '工作台', icon: '工', url: '/pages/service/workspace/index' },
-  { key: 'cases', label: '个案', icon: '案', url: '/pages/service/cases/index' },
-  { key: 'tasks', label: '工单', icon: '单', url: '/pages/service/tasks/index' },
-  { key: 'followup', label: '随访', icon: '访', url: '/pages/service/followup/index' },
-  { key: 'profile', label: '我的', icon: '我', url: '/pages/service/profile/index' },
+const serviceNavItems: Array<{
+  key: Extract<ServiceNavKey, 'workspace' | 'consultations' | 'cases' | 'schedule' | 'profile'>;
+  label: string;
+  icon: string;
+  url: string;
+}> = [
+  { key: 'workspace', label: '工作台', icon: '▦', url: '/pages/service/workspace/index' },
+  { key: 'consultations', label: '咨询', icon: '✉', url: '/pages/service/consultations/index' },
+  { key: 'cases', label: '个案', icon: '◎', url: '/pages/service/cases/index' },
+  { key: 'schedule', label: '日程', icon: '□', url: '/pages/service/schedule/index' },
+  { key: 'profile', label: '我的', icon: '人', url: '/pages/service/profile/index' },
 ];
 
 export function ServiceTabBar({ active }: ServiceTabBarProps) {
@@ -30,6 +35,7 @@ export function ServiceTabBar({ active }: ServiceTabBarProps) {
         >
           <Text className='service-tabbar__icon'>{item.icon}</Text>
           <Text className='service-tabbar__label'>{item.label}</Text>
+          <Text className={`service-tabbar__dot ${item.key === active ? 'service-tabbar__dot--active' : ''}`} />
         </View>
       ))}
     </View>
