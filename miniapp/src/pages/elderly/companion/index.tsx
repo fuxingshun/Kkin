@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Taro, { useDidHide, useDidShow } from '@tarojs/taro';
 import { Button, Input, ScrollView, Text, View } from '@tarojs/components';
 import { chatWithAi, voiceChatWithAi } from '@/services/aiCompanion';
-import { getAiInteractions, getElderlyCareInsight, type AiInteraction, type CareInsight } from '@/services/elderly';
+import { getAiInteractions, type AiInteraction } from '@/services/elderly';
 import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 
 type RecorderStopResult = {
@@ -89,7 +89,6 @@ export default function ElderlyCompanionPage() {
   const [sending, setSending] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [showQuickTopics, setShowQuickTopics] = useState(true);
-  const [careInsight, setCareInsight] = useState<CareInsight | null>(null);
   const [chatScrollTop, setChatScrollTop] = useState(0);
   const audioContextRef = useRef<Taro.InnerAudioContext | null>(null);
   const audioQueueRef = useRef<string[]>([]);
@@ -97,8 +96,7 @@ export default function ElderlyCompanionPage() {
   const recorderManagerRef = useRef<any>(null);
   const sendingRef = useRef(false);
   const voiceRecordingRef = useRef(false);
-  const voiceTouchActiveRef = useRef(false);
-  const voiceTouchResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceRecordingStartedAtRef = useRef(0);
 
   const playNextAudio = useCallback(() => {
     const audioContext = audioContextRef.current;
@@ -179,17 +177,8 @@ export default function ElderlyCompanionPage() {
     }
   }, []);
 
-  const loadCareInsight = useCallback(async () => {
-    try {
-      setCareInsight(await getElderlyCareInsight());
-    } catch (error) {
-      console.warn('[elderly-companion] care insight unavailable', error);
-    }
-  }, []);
-
   useDidShow(() => {
     void loadHistory();
-    void loadCareInsight();
   });
 
   const visibleMessages = useMemo(() => {
@@ -347,17 +336,21 @@ export default function ElderlyCompanionPage() {
 
     recorderManager.onStart(() => {
       voiceRecordingRef.current = true;
+      voiceRecordingStartedAtRef.current = Date.now();
       setIsListening(true);
     });
 
     recorderManager.onStop((result: RecorderStopResult) => {
+      const fallbackDuration = voiceRecordingStartedAtRef.current > 0 ? Date.now() - voiceRecordingStartedAtRef.current : 0;
       voiceRecordingRef.current = false;
+      voiceRecordingStartedAtRef.current = 0;
       setIsListening(false);
-      void sendVoiceFile(result.tempFilePath || '', result.duration || 0);
+      void sendVoiceFile(result.tempFilePath || '', result.duration || fallbackDuration);
     });
 
     recorderManager.onError((error: { errMsg?: string }) => {
       voiceRecordingRef.current = false;
+      voiceRecordingStartedAtRef.current = 0;
       setIsListening(false);
       Taro.showToast({ title: error.errMsg || '录音失败', icon: 'none' });
     });
@@ -365,9 +358,6 @@ export default function ElderlyCompanionPage() {
 
   useEffect(() => {
     return () => {
-      if (voiceTouchResetTimerRef.current) {
-        clearTimeout(voiceTouchResetTimerRef.current);
-      }
       if (voiceRecordingRef.current) {
         try {
           recorderManagerRef.current?.stop();
@@ -467,27 +457,7 @@ export default function ElderlyCompanionPage() {
     }
   }
 
-  function handleVoiceTouchStart() {
-    voiceTouchActiveRef.current = true;
-    if (voiceTouchResetTimerRef.current) {
-      clearTimeout(voiceTouchResetTimerRef.current);
-      voiceTouchResetTimerRef.current = null;
-    }
-    void startVoiceRecording();
-  }
-
-  function handleVoiceTouchEnd() {
-    stopVoiceRecording();
-    voiceTouchResetTimerRef.current = setTimeout(() => {
-      voiceTouchActiveRef.current = false;
-    }, 350);
-  }
-
   function handleVoiceClick() {
-    if (voiceTouchActiveRef.current) {
-      return;
-    }
-
     if (voiceRecordingRef.current) {
       stopVoiceRecording();
     } else {
@@ -516,21 +486,6 @@ export default function ElderlyCompanionPage() {
         </View>
 
         <Text className='ef-topbar__action' onClick={loadHistory}>⋯</Text>
-      </View>
-
-      <View className='ef-care-suggestion'>
-        <View>
-          <Text className='ef-care-suggestion__label'>今日关怀建议</Text>
-          <Text className='ef-care-suggestion__title'>{careInsight?.status_label || '正在同步'}</Text>
-          <Text className='ef-care-suggestion__text'>
-            {careInsight?.elderly_message || '先慢慢说，小心会陪您记录今天的感受。'}
-          </Text>
-        </View>
-        {careInsight?.next_step ? (
-          <Text className='ef-care-suggestion__action' onClick={() => sendMessage(careInsight.next_step)}>
-            聊聊这件事
-          </Text>
-        ) : null}
       </View>
 
       <ScrollView className='ef-chat-list' scrollTop={chatScrollTop} scrollWithAnimation scrollY>
@@ -575,9 +530,6 @@ export default function ElderlyCompanionPage() {
           <Button
             className={`ef-voice-toggle ${isListening ? 'ef-voice-toggle--active' : ''}`}
             onClick={handleVoiceClick}
-            onTouchCancel={handleVoiceTouchEnd}
-            onTouchEnd={handleVoiceTouchEnd}
-            onTouchStart={handleVoiceTouchStart}
           >
             <Text>{isListening ? '停' : '麦'}</Text>
           </Button>

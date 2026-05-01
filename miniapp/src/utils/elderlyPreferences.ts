@@ -34,7 +34,7 @@ export const elderlyAiPersonaOptions: ElderlyAiPersona[] = [
 
 export const defaultElderlyPreferences: ElderlyPreferences = {
   fontSize: 'large',
-  highContrast: true,
+  highContrast: false,
   voiceBroadcast: true,
   language: '普通话',
   aiPersona: '温柔陪伴',

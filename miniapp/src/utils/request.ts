@@ -190,6 +190,10 @@ function extractErrorMessage(data: unknown, fallback: string) {
   if (typeof data === 'object' && data && 'error' in data) {
     const message = (data as { error?: unknown }).error;
     if (typeof message === 'string' && message.trim()) {
+      const asrMessage = (data as { asr_error?: unknown }).asr_error;
+      if (typeof asrMessage === 'string' && asrMessage.trim()) {
+        return `${message}：${asrMessage}`;
+      }
       return message;
     }
   }
@@ -248,10 +252,10 @@ export async function request<T>(path: string, options: RequestOptions = {}) {
 
   for (const url of candidateUrls) {
     attemptedUrls.push(url);
-    let response: Taro.request.SuccessCallbackResult<T>;
+    let response: Taro.request.SuccessCallbackResult<Record<string, unknown>>;
 
     try {
-      response = await Taro.request<T>({
+      response = await Taro.request<Record<string, unknown>>({
         url,
         method: options.method || 'GET',
         data: options.data,
@@ -275,7 +279,7 @@ export async function request<T>(path: string, options: RequestOptions = {}) {
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
       rememberSuccessfulUrl(url);
-      return response.data;
+      return response.data as T;
     }
 
     lastError = new Error(extractErrorMessage(response.data, `请求失败：${response.statusCode}`));

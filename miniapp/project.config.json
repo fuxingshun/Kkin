@@ -5,7 +5,7 @@
   "miniprogramRoot": "dist/weapp/",
   "setting": {
     "es6": true,
-    "enhance": false,
+    "enhance": true,
     "postcss": true,
     "minified": false,
     "urlCheck": false,
@@ -31,7 +31,12 @@
   },
   "simulatorPluginLibVersion": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "suffix",
+        "value": ".map"
+      }
+    ],
     "include": []
   },
   "editorSetting": {},

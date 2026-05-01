@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import Taro from '@tarojs/taro';
-import { Button, Input, Text, View } from '@tarojs/components';
+import { Button, Text, View } from '@tarojs/components';
 import { API_BASE_URL, API_BASE_URLS } from '@/config/runtime';
-import { login } from '@/services/auth';
+import { loginWithWechat, type LoginResult, type WechatProfile } from '@/services/auth';
 import { clearFamilySession, saveFamilySession } from '@/utils/familySession';
 import { clearServiceSession, saveServiceSession } from '@/utils/serviceSession';
 import { clearElderlySession, saveElderlySession } from '@/utils/session';
@@ -11,29 +11,33 @@ type RoleKey = 'elderly' | 'family' | 'service';
 
 interface LoginRoleConfig {
   title: string;
-  subtitle: string;
+  slogan: string;
   icon: string;
   targetUrl: string;
+  fallbackName: string;
 }
 
 const roleConfig: Record<RoleKey, LoginRoleConfig> = {
   elderly: {
     title: '老人陪伴端',
-    subtitle: '温暖陪伴，记录生活',
-    icon: '心',
+    slogan: '温暖陪伴每一天',
+    icon: '♡',
     targetUrl: '/pages/elderly/home/index',
+    fallbackName: '老人用户',
   },
   family: {
     title: '家属照护端',
-    subtitle: '远程守护，安心照护',
-    icon: '家',
+    slogan: '远程守护，爱不缺席',
+    icon: '人',
     targetUrl: '/pages/family/dashboard/index',
+    fallbackName: '家属用户',
   },
   service: {
-    title: '服务人员端',
-    subtitle: '专业服务，高效协同',
-    icon: '协',
+    title: '服务协同端',
+    slogan: '专业服务，用心守护',
+    icon: '▭',
     targetUrl: '/pages/service/workspace/index',
+    fallbackName: '服务专员',
   },
 };
 
@@ -41,62 +45,80 @@ function isRoleKey(value: unknown): value is RoleKey {
   return typeof value === 'string' && value in roleConfig;
 }
 
+function saveRoleSession(role: RoleKey, result: LoginResult, fallbackName: string) {
+  clearElderlySession();
+  clearFamilySession();
+  clearServiceSession();
+
+  if (role === 'elderly') {
+    saveElderlySession({
+      role: 'elderly',
+      familyId: result.family_id,
+      elderlyId: result.elderly_id,
+      elderName: result.elderly_name || result.display_name || fallbackName,
+    });
+    return;
+  }
+
+  if (role === 'family') {
+    saveFamilySession({
+      familyId: result.family_id,
+      familyUserId: result.family_user_id || result.user_id,
+      familyName: result.family_name || result.display_name || fallbackName,
+      elderlyId: result.elderly_id,
+      elderlyName: result.elderly_name,
+    });
+    return;
+  }
+
+  saveServiceSession({
+    username: result.username || 'wechat-service',
+    familyId: result.family_id,
+    displayName: result.display_name || fallbackName,
+  });
+}
+
+async function getWechatProfile(): Promise<WechatProfile | undefined> {
+  try {
+    const profile = await Taro.getUserProfile({
+      desc: '用于完善登录资料',
+      lang: 'zh_CN',
+    });
+
+    return {
+      nickName: profile.userInfo?.nickName,
+      avatarUrl: profile.userInfo?.avatarUrl,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export default function LoginPage() {
   const routeRole = Taro.getCurrentInstance().router?.params?.role;
   const role = isRoleKey(routeRole) ? routeRole : 'elderly';
   const config = roleConfig[role];
   const isElderlyMode = role === 'elderly';
-
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [remember, setRemember] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleLogin = async () => {
-    const nextUsername = username.trim();
-    const nextPassword = password.trim();
-
-    if (!nextUsername) {
-      Taro.showToast({ title: '请输入用户名', icon: 'none' });
-      return;
-    }
-
-    if (!nextPassword) {
-      Taro.showToast({ title: '请输入密码', icon: 'none' });
+  const handleWechatLogin = async () => {
+    if (!agreed) {
+      Taro.showModal({
+        title: '请先阅读并同意',
+        content: '登录前需要同意《用户协议》和《隐私政策》。',
+        showCancel: false,
+      });
       return;
     }
 
     try {
       setSubmitting(true);
+      const profile = await getWechatProfile();
       Taro.showLoading({ title: '正在登录', mask: true });
-      const result = await login(role, nextUsername, nextPassword);
-      clearElderlySession();
-      clearFamilySession();
-      clearServiceSession();
+      const result = await loginWithWechat(role, profile);
 
-      if (role === 'elderly') {
-        saveElderlySession({
-          role: 'elderly',
-          familyId: result.family_id,
-          elderlyId: result.elderly_id,
-          elderName: result.elderly_name || result.display_name || nextUsername,
-        });
-      } else if (role === 'family') {
-        saveFamilySession({
-          familyId: result.family_id,
-          familyUserId: result.family_user_id || result.user_id,
-          familyName: result.family_name || result.display_name || nextUsername,
-          elderlyId: result.elderly_id,
-          elderlyName: result.elderly_name,
-        });
-      } else {
-        saveServiceSession({
-          username: result.username || nextUsername,
-          familyId: result.family_id,
-          displayName: result.display_name || '服务专员',
-        });
-      }
+      saveRoleSession(role, result, profile?.nickName || config.fallbackName);
 
       Taro.hideLoading();
       Taro.showToast({ title: '登录成功', icon: 'success' });
@@ -121,101 +143,90 @@ export default function LoginPage() {
     });
   };
 
+  const showPolicy = (title: string) => {
+    Taro.showModal({
+      title,
+      content: '我们会按照微信小程序规范，仅在登录和服务履约所需范围内使用您的授权信息。',
+      showCancel: false,
+    });
+  };
+
   return (
     <View className={`login-page login-page--${role}`}>
       <View className='login-shell'>
         <Button className='login-back' onClick={returnToRole}>
-          返回角色选择
+          <Text className='login-back__icon'>‹</Text>
+          <Text>返回</Text>
         </Button>
 
-        <View className='login-card'>
-          <View className='login-card__head'>
-            <View className='login-card__icon'>
-              <Text>{config.icon}</Text>
-            </View>
-            <Text className={isElderlyMode ? 'login-title login-title--large' : 'login-title'}>
-              {config.title}
-            </Text>
-            <Text className='login-subtitle'>{config.subtitle}</Text>
+        <View className='login-main'>
+          <View className={`login-card__icon login-card__icon--${role}`}>
+            <Text className='login-card__icon-text'>{config.icon}</Text>
           </View>
 
-          <View className='login-form'>
-            <View className='login-field'>
-              <Text className={isElderlyMode ? 'login-label login-label--large' : 'login-label'}>用户名</Text>
-              <Input
-                className={isElderlyMode ? 'login-input login-input--large' : 'login-input'}
-                value={username}
-                placeholder={isElderlyMode ? '请输入您的用户名' : '请输入用户名'}
-                onInput={(event) => setUsername(event.detail.value)}
-              />
-            </View>
+          <Text className={isElderlyMode ? 'login-title login-title--large' : 'login-title'}>
+            {config.title}
+          </Text>
+          <Text className={isElderlyMode ? 'login-subtitle login-subtitle--large' : 'login-subtitle'}>
+            {config.slogan}
+          </Text>
 
-            <View className='login-field'>
-              <Text className={isElderlyMode ? 'login-label login-label--large' : 'login-label'}>密码</Text>
-              <View className='login-password'>
-                <Input
-                  className={isElderlyMode ? 'login-input login-input--large' : 'login-input'}
-                  value={password}
-                  password={!showPassword}
-                  placeholder={isElderlyMode ? '请输入您的密码' : '请输入密码'}
-                  onInput={(event) => setPassword(event.detail.value)}
-                />
-                <Text className='login-password__toggle' onClick={() => setShowPassword((value) => !value)}>
-                  {showPassword ? '隐藏' : '显示'}
-                </Text>
-              </View>
-            </View>
-
-            <View className='login-row'>
-              <View className='login-check' onClick={() => setRemember((value) => !value)}>
-                <View className={remember ? 'login-check__box login-check__box--active' : 'login-check__box'}>
-                  {remember ? <Text>✓</Text> : null}
-                </View>
-                <Text>记住我</Text>
-              </View>
-              <Text
-                className='login-link'
-                onClick={() =>
-                  Taro.showModal({
-                    title: '忘记密码',
-                    content: role === 'service' ? '请联系管理员重置服务端账号密码。' : '演示环境默认密码可使用手机号后 6 位，或联系管理员重置。',
-                    showCancel: false,
-                  })
-                }
-              >
-                忘记密码？
-              </Text>
-            </View>
-
-            <Button className='login-submit' loading={submitting} onClick={() => void handleLogin()}>
-              立即登录
-            </Button>
-
-            {isElderlyMode ? (
-              <View className='login-note'>
-                <Text>演示环境默认密码可使用手机号后 6 位</Text>
-              </View>
+          <Button
+            className={isElderlyMode ? 'login-submit login-submit--large' : 'login-submit'}
+            disabled={submitting}
+            onClick={() => void handleWechatLogin()}
+          >
+            {submitting ? (
+              <View className='login-spinner' />
             ) : (
-              <View className='login-register'>
-                <Text>还没有账号？</Text>
-                <Text
-                  className='login-link'
-                  onClick={() =>
-                    Taro.showModal({
-                      title: '账号开通',
-                      content: role === 'service' ? '服务端账号请由平台管理员开通。' : '家属账号可先由老人端生成绑定码，再在家属端完成绑定。',
-                      showCancel: false,
-                    })
-                  }
-                >
-                  立即注册
-                </Text>
+              <View className='login-wechat-mark'>
+                <Text>微</Text>
               </View>
             )}
-          </View>
+            <Text>{submitting ? '正在授权...' : '微信授权登录'}</Text>
+          </Button>
+
+          {isElderlyMode && (
+            <View className='login-note'>
+              <Text>点击上方按钮即可使用微信登录</Text>
+            </View>
+          )}
         </View>
 
-        <Text className='login-safe'>您的信息将被安全加密保护</Text>
+        <View className='login-bottom'>
+          <View className='login-agree' onClick={() => setAgreed((value) => !value)}>
+            <View className={agreed ? 'login-check__box login-check__box--active' : 'login-check__box'}>
+              <Text>{agreed ? '✓' : ''}</Text>
+            </View>
+            <View className='login-agree__text'>
+              <Text>登录即代表同意</Text>
+              <Text
+                className='login-policy-link'
+                onClick={(event) => {
+                  event.stopPropagation();
+                  showPolicy('用户协议');
+                }}
+              >
+                《用户协议》
+              </Text>
+              <Text>和</Text>
+              <Text
+                className='login-policy-link'
+                onClick={(event) => {
+                  event.stopPropagation();
+                  showPolicy('隐私政策');
+                }}
+              >
+                《隐私政策》
+              </Text>
+            </View>
+          </View>
+
+          <View className='login-safe'>
+            <Text className='login-safe__icon'>锁</Text>
+            <Text>您的个人信息将被安全加密保护</Text>
+          </View>
+        </View>
       </View>
     </View>
   );

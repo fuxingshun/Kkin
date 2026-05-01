@@ -21,6 +21,7 @@ import {
   type Schedule,
 } from '@/services/family';
 import { countTodayMemberMessages, getInteractionHistory, sanitizeInteractionContent } from '@/services/interaction';
+import { getLatestMentalScreening, type MentalScreening } from '@/services/mentalHealth';
 import { formatDateTimeText, formatRelativeTime } from '@/utils/format';
 import { useNavigationMetrics } from '@/utils/navigation';
 
@@ -119,6 +120,7 @@ export default function FamilyDashboardPage() {
   const [todayInteractionCount, setTodayInteractionCount] = useState(0);
   const [latestInteraction, setLatestInteraction] = useState('');
   const [careInsight, setCareInsight] = useState<CareInsight | null>(null);
+  const [latestScreening, setLatestScreening] = useState<MentalScreening | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -134,9 +136,10 @@ export default function FamilyDashboardPage() {
         getRecentPlays(undefined, 5),
         getInteractionHistory(undefined, 60),
         getCareInsight(),
+        getLatestMentalScreening(),
       ]);
 
-      const [usersResult, messagesResult, schedulesResult, moodsResult, moodStatsResult, alertStatsResult, recentPlaysResult, interactionResult, insightResult] =
+      const [usersResult, messagesResult, schedulesResult, moodsResult, moodStatsResult, alertStatsResult, recentPlaysResult, interactionResult, insightResult, screeningResult] =
         results;
       let hasFailed = false;
 
@@ -196,6 +199,13 @@ export default function FamilyDashboardPage() {
         setCareInsight(insightResult.value);
       } else {
         hasFailed = true;
+      }
+
+      if (screeningResult.status === 'fulfilled') {
+        setLatestScreening(screeningResult.value);
+      } else {
+        hasFailed = true;
+        setLatestScreening(null);
       }
 
       if (hasFailed) {
@@ -355,6 +365,24 @@ export default function FamilyDashboardPage() {
                 <Text>还没有情绪记录</Text>
               </View>
             )}
+          </View>
+        </View>
+
+        <View className='ff-card'>
+          <View className='ff-section-head'>
+            <View>
+              <Text className='ff-section-title'>心理关怀筛查</Text>
+              <Text className='ff-card-subtitle'>
+                {latestScreening?.created_at ? `最近一次：${formatDateTimeText(latestScreening.created_at)}` : '老人端完成现场检测后会同步到这里'}
+              </Text>
+            </View>
+            <Text className={`ff-chip ${latestScreening?.risk_level === 'low' ? 'ff-chip--green' : 'ff-chip--amber'}`}>
+              {latestScreening?.status_label || '暂无'}
+            </Text>
+          </View>
+          <View className='ff-warning-row'>
+            <Text>建议</Text>
+            <Text>{latestScreening?.recommendation || '可邀请老人端进行一次心理关怀检测，结果仅供关怀参考。'}</Text>
           </View>
         </View>
 

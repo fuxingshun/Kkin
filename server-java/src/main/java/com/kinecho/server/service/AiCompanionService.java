@@ -11,7 +11,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -216,6 +218,10 @@ public class AiCompanionService {
         try {
             assertBailianApiKey();
             String fileUrl = bailianVoiceFileUrl(file, origin);
+            String fileUrlError = validateBailianFileUrl(fileUrl);
+            if (!fileUrlError.isBlank()) {
+                return new TranscriptionResult("", fileUrlError, "bailian");
+            }
             Map<String, Object> payload = db.map(
                 "model", properties.bailianAsrModel,
                 "input", db.map("file_urls", List.of(fileUrl))
@@ -489,6 +495,45 @@ public class AiCompanionService {
             return properties.bailianAsrFileBaseUrl.replaceAll("/$", "") + "/uploads/ai-voice/" + filename;
         }
         return absoluteAssetUrl(origin, "uploads/ai-voice/" + filename);
+    }
+
+    private String validateBailianFileUrl(String fileUrl) {
+        URI uri;
+        try {
+            uri = URI.create(fileUrl);
+        } catch (Exception ex) {
+            return "Bailian ASR voice file URL is invalid: " + fileUrl;
+        }
+        String scheme = uri.getScheme();
+        String host = uri.getHost();
+        if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) {
+            return "Bailian ASR voice file URL must use http or https.";
+        }
+        if (host == null || host.isBlank()) {
+            return "Bailian ASR voice file URL has no host.";
+        }
+        String normalizedHost = host.toLowerCase();
+        if ("localhost".equals(normalizedHost) || normalizedHost.endsWith(".local")) {
+            return publicVoiceUrlMessage(fileUrl);
+        }
+        try {
+            for (InetAddress address : InetAddress.getAllByName(host)) {
+                if (address.isAnyLocalAddress()
+                    || address.isLoopbackAddress()
+                    || address.isLinkLocalAddress()
+                    || address.isSiteLocalAddress()) {
+                    return publicVoiceUrlMessage(fileUrl);
+                }
+            }
+        } catch (UnknownHostException ignored) {
+            return "";
+        }
+        return "";
+    }
+
+    private String publicVoiceUrlMessage(String fileUrl) {
+        return "Bailian ASR needs a public voice file URL, but got " + fileUrl
+            + ". Set kinecho.bailian-asr-file-base-url to a public backend origin.";
     }
 
     private void recordInteraction(String type, String content, String username, String way) {

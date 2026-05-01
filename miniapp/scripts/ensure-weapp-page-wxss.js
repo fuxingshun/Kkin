@@ -25,7 +25,18 @@ function ensureWeappPageWxss() {
   }
 
   const appConfig = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
-  const pages = Array.isArray(appConfig.pages) ? appConfig.pages : [];
+  const pages = Array.isArray(appConfig.pages) ? [...appConfig.pages] : [];
+  const subPackages = appConfig.subPackages || appConfig.subpackages || [];
+
+  for (const subPackage of subPackages) {
+    const root = typeof subPackage.root === 'string' ? subPackage.root.replace(/\/$/, '') : '';
+    const subPages = Array.isArray(subPackage.pages) ? subPackage.pages : [];
+
+    for (const page of subPages) {
+      pages.push(root ? `${root}/${page}` : page);
+    }
+  }
+
   let created = 0;
 
   for (const page of pages) {

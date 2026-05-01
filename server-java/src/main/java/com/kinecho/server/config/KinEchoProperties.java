@@ -15,10 +15,10 @@ import java.util.Locale;
 @ConfigurationProperties(prefix = "kinecho")
 public class KinEchoProperties {
     public ZoneId zoneId = ZoneId.of("Asia/Shanghai");
-    public boolean seedDemoData = true;
+    public boolean seedDemoData = false;
     public boolean apiTokenEnabled = false;
     public String apiToken = "";
-    public String demoLoginPassword = "123456";
+    public String demoLoginPassword = "";
     public String serviceUsername = "service";
     public String servicePassword = "123456";
     public String serviceFamilyId = "family_001";
@@ -26,6 +26,9 @@ public class KinEchoProperties {
     public String adminUsername = "admin";
     public String adminPassword = "123456";
     public String adminDisplayName = "平台管理员";
+    public String wechatAppId = "";
+    public String wechatAppSecret = "";
+    public String serviceWechatOpenid = "";
     public String aiChatProvider = "bailian";
     public int aiAudioRetentionCount = 32;
 
@@ -78,7 +81,7 @@ public class KinEchoProperties {
 
         aiChatProvider = valueOrDefault(aiChatProvider, "bailian").toLowerCase(Locale.ROOT);
         apiToken = valueOrDefault(apiToken, "");
-        demoLoginPassword = valueOrDefault(demoLoginPassword, "123456");
+        demoLoginPassword = valueOrDefault(demoLoginPassword, "");
         serviceUsername = valueOrDefault(serviceUsername, "service");
         servicePassword = valueOrDefault(servicePassword, "123456");
         serviceFamilyId = valueOrDefault(serviceFamilyId, "family_001");
@@ -86,6 +89,9 @@ public class KinEchoProperties {
         adminUsername = valueOrDefault(adminUsername, "admin");
         adminPassword = valueOrDefault(adminPassword, "123456");
         adminDisplayName = valueOrDefault(adminDisplayName, "平台管理员");
+        wechatAppId = valueOrDefault(wechatAppId, "");
+        wechatAppSecret = valueOrDefault(wechatAppSecret, "");
+        serviceWechatOpenid = valueOrDefault(serviceWechatOpenid, "");
         bailianApiBaseUrl = trimTrailingSlash(bailianApiBaseUrl);
         bailianCompatibleBaseUrl = trimTrailingSlash(bailianCompatibleBaseUrl);
         bailianAsrFileBaseUrl = trimTrailingSlash(bailianAsrFileBaseUrl);
@@ -144,6 +150,18 @@ public class KinEchoProperties {
 
     public void setAdminDisplayName(String adminDisplayName) {
         this.adminDisplayName = valueOrDefault(adminDisplayName, this.adminDisplayName);
+    }
+
+    public void setWechatAppId(String wechatAppId) {
+        this.wechatAppId = valueOrDefault(wechatAppId, "");
+    }
+
+    public void setWechatAppSecret(String wechatAppSecret) {
+        this.wechatAppSecret = valueOrDefault(wechatAppSecret, "");
+    }
+
+    public void setServiceWechatOpenid(String serviceWechatOpenid) {
+        this.serviceWechatOpenid = valueOrDefault(serviceWechatOpenid, "");
     }
 
     public void setAiChatProvider(String aiChatProvider) {

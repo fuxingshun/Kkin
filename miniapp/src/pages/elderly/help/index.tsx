@@ -33,7 +33,7 @@ export default function ElderlyHelpPage() {
 
   async function sendEmergency() {
     try {
-      await sendSOSAlert(familyId, elderlyId);
+      await sendSOSAlert(familyId, elderlyId, contacts);
       setEmergencySent(true);
       setShowEmergencyConfirm(false);
     } catch (error) {
@@ -43,16 +43,24 @@ export default function ElderlyHelpPage() {
   }
 
   async function contactFamily(contact?: FamilyUser) {
+    const phone = contact?.phone?.trim();
     try {
-      await sendContactFamilyAlert(familyId, elderlyId);
-      if (contact?.phone) {
-        await Taro.makePhoneCall({ phoneNumber: contact.phone });
-      } else {
-        Taro.showToast({ title: '已通知家人', icon: 'success' });
-      }
+      await sendContactFamilyAlert(familyId, elderlyId, contact);
     } catch (error) {
-      const message = error instanceof Error ? error.message : '操作失败';
+      const message = error instanceof Error ? error.message : '通知家人失败';
       Taro.showToast({ title: message, icon: 'none' });
+      return;
+    }
+
+    if (!phone) {
+      Taro.showToast({ title: '已通知家人', icon: 'success' });
+      return;
+    }
+
+    try {
+      await Taro.makePhoneCall({ phoneNumber: phone });
+    } catch {
+      Taro.showToast({ title: '已通知家人，拨号未完成', icon: 'none' });
     }
   }
 
@@ -106,7 +114,9 @@ export default function ElderlyHelpPage() {
                     </View>
                   </View>
                   <Text className='ef-contact-phone'>{contact.phone || '未填写电话'}</Text>
-                  <Button className='ef-blue-button' onClick={() => contactFamily(contact)}>拨打电话</Button>
+                  <Button className='ef-blue-button' onClick={() => contactFamily(contact)}>
+                    {contact.phone?.trim() ? '拨打电话' : '通知家人'}
+                  </Button>
                 </View>
               ))
             ) : (

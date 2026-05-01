@@ -46,7 +46,6 @@ import {
   getHealth,
   getMedia,
   getMoodStats,
-  getRecentPlays,
   getUsers,
   handleAlert as handleAlertRequest,
   loginAdmin as loginAdminRequest,
@@ -99,26 +98,6 @@ const navItems: Array<{ id: AdminPage; label: string; icon: LucideIcon }> = [
 
 const visibleNavItems = pilotNavItems.length ? pilotNavItems : navItems;
 
-/*
-const activityData = [
-  { month: '1月', users: 120 },
-  { month: '2月', users: 150 },
-  { month: '3月', users: 180 },
-  { month: '4月', users: 220 },
-  { month: '5月', users: 280 },
-  { month: '6月', users: 350 },
-];
-
-const emotionData = [
-  { emotion: '开心', count: 450 },
-  { emotion: '平稳', count: 380 },
-  { emotion: '疲惫', count: 120 },
-  { emotion: '难过', count: 80 },
-  { emotion: '焦虑', count: 60 },
-  { emotion: '生气', count: 30 },
-];
-
-*/
 interface AdminUser {
   id: number;
   name: string;
@@ -251,25 +230,6 @@ function toAdminAlerts(apiAlerts: ApiAlert[]): AdminAlert[] {
     status: getAlertStatus(alert),
   }));
 }
-
-const userTrendData = [
-  { month: '1月', elderly: 100, family: 180 },
-  { month: '2月', elderly: 120, family: 210 },
-  { month: '3月', elderly: 150, family: 260 },
-  { month: '4月', elderly: 180, family: 310 },
-  { month: '5月', elderly: 220, family: 380 },
-  { month: '6月', elderly: 280, family: 480 },
-];
-
-const weeklyActivityData = [
-  { day: '周一', ai: 450, memory: 230 },
-  { day: '周二', ai: 520, memory: 280 },
-  { day: '周三', ai: 480, memory: 250 },
-  { day: '周四', ai: 590, memory: 310 },
-  { day: '周五', ai: 630, memory: 340 },
-  { day: '周六', ai: 700, memory: 420 },
-  { day: '周日', ai: 680, memory: 390 },
-];
 
 function RiskBadge({ level }: { level: string }) {
   const className = level === '高' ? 'admin-badge admin-badge--high' : level === '中' ? 'admin-badge admin-badge--medium' : 'admin-badge admin-badge--low';
@@ -535,55 +495,6 @@ function DashboardPage({ notify }: { notify: Notify }) {
       mounted = false;
     };
   }, [notify]);
-/*
-  const overview = summary?.overview;
-  const analyticsSummary = analytics?.summary;
-  const casePreviewRows = (summary?.case_rows ?? []).slice(0, 3).map((row, index) => ({
-    id: row.elderly_id,
-    rank: index + 1,
-    name: row.elderly_name,
-    detail: `${row.open_alerts} 条预警 · ${row.active_consultations} 次跟进`,
-    risk: mapRiskLevel(row.risk_level),
-  }));
-  const dashboardStats = [
-    {
-      label: '老人用户数',
-      value: String(analyticsSummary?.elderly_users ?? 0),
-      change: loading ? '同步中' : `总用户 ${analyticsSummary?.total_users ?? 0}`,
-      icon: Users,
-      tone: 'purple',
-    },
-    {
-      label: '家属用户数',
-      value: String(analyticsSummary?.family_users ?? 0),
-      change: loading ? '同步中' : `近 7 日跟进 ${analyticsSummary?.followups ?? 0}`,
-      icon: Shield,
-      tone: 'pink',
-    },
-    {
-      label: '情绪记录',
-      value: String(analyticsSummary?.mood_records ?? moodStats?.overall?.total_records ?? 0),
-      change: loading
-        ? '同步中'
-        : `平均 ${analyticsSummary ? analyticsSummary.avg_mood_score.toFixed(1) : (moodStats?.overall?.avg_score ?? 0).toFixed(1)} 分`,
-      icon: Activity,
-      tone: 'green',
-    },
-    {
-      label: '待处理预警',
-      value: String(overview?.pending_alerts ?? adminAlerts.length),
-      change: loading ? '同步中' : `高风险 ${overview?.high_risk_cases ?? 0} 人`,
-      icon: AlertTriangle,
-      tone: 'orange',
-    },
-  ];
-  const chartGrowthData = analytics?.user_growth ?? [];
-  const dashboardEmotionData =
-    moodStats?.mood_type_stats?.map((item) => ({
-      emotion: getMoodLabel(item.mood_type),
-      count: item.count,
-    })) ?? [];
-*/
   const overview = summary?.overview;
   const analyticsSummary = analytics?.summary;
   const casePreviewRows = (summary?.case_rows ?? []).slice(0, 3).map((row, index) => ({
@@ -632,26 +543,6 @@ function DashboardPage({ notify }: { notify: Notify }) {
       count: item.count,
     })) ?? [];
 
-/*
-  const elderlyCount = adminUsers.filter((user) => user.role === '老人').length;
-  const familyCount = adminUsers.filter((user) => user.role === '家属').length;
-  const unhandledAlerts = adminAlerts.filter((alert) => alert.status !== '已处理').length;
-  const stats = [
-    { label: '老人用户数', value: String(elderlyCount), change: loading ? '同步中' : '实时', icon: Users, tone: 'purple' },
-    { label: '家属用户数', value: String(familyCount), change: loading ? '同步中' : '实时', icon: Shield, tone: 'pink' },
-    { label: '今日记录', value: String(moodStats?.today_count ?? 0), change: `${recentPlays}次播放`, icon: Activity, tone: 'green' },
-    { label: '待处理预警', value: String(unhandledAlerts), change: `${schedules}条计划`, icon: AlertTriangle, tone: 'orange' },
-  ];
-  const chartActivityData = moodStats?.daily_stats?.length
-    ? moodStats.daily_stats.map((item) => ({ month: item.date.slice(5), records: item.count }))
-    : activityData.map((item) => ({ month: item.month, records: item.users }));
-  const chartEmotionData = moodStats?.mood_type_stats?.length
-    ? moodStats.mood_type_stats.map((item) => ({
-        emotion: getMoodLabel(item.mood_type),
-        count: item.count,
-      }))
-    : emotionData;
-*/
 
   return (
     <div className="admin-page-stack">
@@ -791,20 +682,6 @@ function DashboardPage({ notify }: { notify: Notify }) {
                 </div>
               </div>
             )}
-            {/*
-            {[
-              { name: ADMIN_FAMILY_ID, elderly: elderlyCount, score: Math.max(60, 100 - unhandledAlerts * 8) },
-            ].map((org, index) => (
-              <div className="admin-rank-row" key={org.name}>
-                <span>{index + 1}</span>
-                <div>
-                  <strong>{org.name}</strong>
-                  <small>{org.elderly}位老人</small>
-                </div>
-                <b>{org.score}</b>
-              </div>
-            ))}
-            */}
           </div>
         </article>
       </section>
@@ -1562,139 +1439,6 @@ function AnalyticsPageLive({ notify }: { notify: Notify }) {
   );
 }
 
-function ServicePage() {
-  return (
-    <div className="admin-page-stack">
-      <PageHeader title="服务协同管理" desc="管理服务人员和机构信息" />
-      <section className="admin-two-col">
-        <article className="admin-panel">
-          <h2>服务人员统计</h2>
-          <div className="admin-list">
-            {[
-              { role: '心理咨询师', count: 12 },
-              { role: '医生', count: 8 },
-              { role: '社工', count: 15 },
-              { role: '护理员', count: 25 },
-            ].map((item) => (
-              <div className="admin-list-row" key={item.role}>
-                <strong>{item.role}</strong>
-                <b>{item.count}人</b>
-              </div>
-            ))}
-          </div>
-        </article>
-        <article className="admin-panel">
-          <h2>机构管理</h2>
-          <div className="admin-list">
-            {[
-              { name: '阳光社区', elderly: 45 },
-              { name: '和谐社区', elderly: 38 },
-              { name: '幸福社区', elderly: 32 },
-            ].map((org) => (
-              <div className="admin-list-row" key={org.name}>
-                <strong>{org.name}</strong>
-                <span>{org.elderly}位老人</span>
-              </div>
-            ))}
-          </div>
-        </article>
-      </section>
-    </div>
-  );
-}
-
-function AnalyticsPage({ notify }: { notify: Notify }) {
-  const [moodStats, setMoodStats] = useState<ApiMoodStats | null>(null);
-  const [recentPlayCount, setRecentPlayCount] = useState(0);
-
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadAnalytics() {
-      try {
-        const [nextMoodStats, nextRecentPlays] = await Promise.all([
-          getMoodStats(undefined, 7),
-          getRecentPlays(undefined, 20),
-        ]);
-        if (mounted) {
-          setMoodStats(nextMoodStats);
-          setRecentPlayCount(nextRecentPlays.length);
-        }
-      } catch (error) {
-        if (mounted) {
-          notify('分析数据加载失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
-        }
-      }
-    }
-
-    void loadAnalytics();
-    return () => {
-      mounted = false;
-    };
-  }, [notify]);
-
-  const trendData = moodStats?.daily_stats?.length
-    ? moodStats.daily_stats.map((item) => ({
-        month: item.date.slice(5),
-        elderly: item.count,
-        family: Math.round(item.avg_score * 10),
-      }))
-    : userTrendData;
-  const activityRows = weeklyActivityData.map((item, index) => ({
-    ...item,
-    memory: index === weeklyActivityData.length - 1 ? recentPlayCount : item.memory,
-  }));
-
-  return (
-    <div className="admin-page-stack">
-      <PageHeader title="数据分析" desc="深入了解平台运营数据和用户行为" />
-      <section className="admin-two-col">
-        <article className="admin-panel">
-          <div className="admin-panel__head">
-            <div>
-              <h2>用户增长趋势</h2>
-              <p>近6个月用户数量变化</p>
-            </div>
-            <TrendingUp size={20} color="#10b981" />
-          </div>
-          <div className="admin-chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendData}>
-                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="elderly" stroke="#3b82a6" strokeWidth={2} name="老人用户" />
-                <Line type="monotone" dataKey="family" stroke="#10b981" strokeWidth={2} name="家属用户" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </article>
-        <article className="admin-panel">
-          <div className="admin-panel__head">
-            <div>
-              <h2>本周活跃度</h2>
-              <p>AI互动与回忆观看统计</p>
-            </div>
-          </div>
-          <div className="admin-chart">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={activityRows}>
-                <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Bar dataKey="ai" fill="#6366f1" name="AI互动" />
-                <Bar dataKey="memory" fill="#f59e0b" name="观看回忆" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </article>
-      </section>
-    </div>
-  );
-}
-
-void ServicePage;
-void AnalyticsPage;
 
 function SettingsPage({ notify }: { notify: Notify }) {
   const [health, setHealth] = useState<string>('未同步');

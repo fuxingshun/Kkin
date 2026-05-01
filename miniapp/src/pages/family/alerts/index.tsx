@@ -28,6 +28,21 @@ function getTag(alert: FamilyAlert) {
   return '待处理';
 }
 
+function getAlertExtraText(alert: FamilyAlert) {
+  const metadata = alert.metadata || {};
+  if (alert.alert_type === 'contact_family') {
+    const name = typeof metadata.contact_name === 'string' ? metadata.contact_name : '';
+    const phone = typeof metadata.contact_phone === 'string' ? metadata.contact_phone : '';
+    if (name && phone) return `联系人：${name} ${phone}`;
+    if (name) return `联系人：${name}`;
+  }
+  if (alert.alert_type === 'sos_emergency') {
+    const count = Number(metadata.recipient_count || 0);
+    if (count > 0) return `已通知家属联系人：${count}人`;
+  }
+  return '';
+}
+
 export default function AlertsPage() {
   const navigation = useNavigationMetrics();
   const [activeTab, setActiveTab] = useState<AlertTab>('unread');
@@ -142,6 +157,7 @@ export default function AlertsPage() {
         {visibleAlerts.length ? (
           visibleAlerts.map((item) => {
             const tone = getTone(item.level);
+            const extraText = getAlertExtraText(item);
             return (
               <View className='ff-notice-card' key={item.id}>
                 <View className={`ff-notice-card__icon ff-notice-card__icon--${tone}`}>
@@ -153,6 +169,7 @@ export default function AlertsPage() {
                     <Text className='ff-card-meta'>{formatDateTimeText(item.created_at)}</Text>
                   </View>
                   <Text className='ff-card-text'>{item.message}</Text>
+                  {extraText ? <Text className='ff-card-text'>{extraText}</Text> : null}
                   <View className='ff-soft-button-row'>
                     <Text className={`ff-chip ff-chip--${tone}`}>{getTag(item)}</Text>
                     {!item.read ? (

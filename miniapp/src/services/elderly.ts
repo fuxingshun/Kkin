@@ -82,6 +82,46 @@ export interface Counselor {
   specialty?: string;
   rating?: string;
   avatar?: string;
+  price?: number;
+  discount_price?: number;
+  education?: string;
+  tags?: string[];
+  experience_stats?: {
+    hours?: string;
+    years?: string;
+    training?: string;
+    supervision?: string;
+  };
+  availability_text?: string;
+  format_text?: string;
+  location?: string;
+  specialties?: Array<{
+    title: string;
+    items?: string[];
+  }>;
+  packages?: Array<{
+    id: number;
+    name: string;
+    price: number;
+    label?: string;
+    description?: string;
+  }>;
+  calendar?: {
+    month?: string;
+    dates?: Array<{
+      day: number | string;
+      status?: string;
+      available?: number;
+      isToday?: boolean;
+    }>;
+  };
+  notices?: Array<{
+    title: string;
+    text: string;
+  }>;
+  hero_emoji?: string;
+  hero_hint?: string;
+  brand_text?: string;
   available: boolean;
 }
 
@@ -135,6 +175,15 @@ export interface BindingCodeInfo {
   elderly_name?: string;
 }
 
+export interface ElderlyProfileStats {
+  elderly_id: number;
+  elderly_name?: string;
+  companion_days: number;
+  interaction_count: number;
+  favorite_memories: number;
+  created_at?: string;
+}
+
 export const moodLabelMap: Record<MoodType, string> = {
   happy: '开心',
   calm: '平静',
@@ -175,10 +224,15 @@ function resolveElderlyId(elderlyId?: number) {
   return getElderlySession().elderlyId || DEFAULT_ELDERLY_ID;
 }
 
-export async function sendSOSAlert(familyId = DEFAULT_FAMILY_ID, elderlyId = DEFAULT_ELDERLY_ID) {
+export async function sendSOSAlert(
+  familyId = DEFAULT_FAMILY_ID,
+  elderlyId = DEFAULT_ELDERLY_ID,
+  contacts: FamilyUser[] = []
+) {
   const resolvedFamilyId = resolveFamilyId(familyId);
   const resolvedElderlyId = resolveElderlyId(elderlyId);
   const now = new Date();
+  const activeContacts = contacts.filter((contact) => contact.user_type === 'family');
   const data = await request<{ success?: boolean }>('/elderly/alerts', {
     method: 'POST',
     data: {
@@ -190,7 +244,16 @@ export async function sendSOSAlert(familyId = DEFAULT_FAMILY_ID, elderlyId = DEF
       message: `老人发起了紧急求助（${now.toLocaleDateString('zh-CN')} ${now.toLocaleTimeString('zh-CN', {
         hour: '2-digit',
         minute: '2-digit',
-      })}）`,
+      })}），请尽快联系确认安全。`,
+      metadata: {
+        action: 'notify_all_family_contacts',
+        recipient_count: activeContacts.length,
+        recipients: activeContacts.map((contact) => ({
+          user_id: contact.id,
+          name: contact.name,
+          phone: contact.phone || '',
+        })),
+      },
     },
   });
 
@@ -199,11 +262,14 @@ export async function sendSOSAlert(familyId = DEFAULT_FAMILY_ID, elderlyId = DEF
 
 export async function sendContactFamilyAlert(
   familyId = DEFAULT_FAMILY_ID,
-  elderlyId = DEFAULT_ELDERLY_ID
+  elderlyId = DEFAULT_ELDERLY_ID,
+  contact?: FamilyUser
 ) {
   const resolvedFamilyId = resolveFamilyId(familyId);
   const resolvedElderlyId = resolveElderlyId(elderlyId);
   const now = new Date();
+  const targetName = contact?.name?.trim();
+  const targetPhone = contact?.phone?.trim();
   const data = await request<{ success?: boolean }>('/elderly/alerts', {
     method: 'POST',
     data: {
@@ -211,10 +277,22 @@ export async function sendContactFamilyAlert(
       elderly_id: resolvedElderlyId,
       alert_type: 'contact_family',
       level: 'medium',
-      message: `老人希望家人联系自己（${now.toLocaleTimeString('zh-CN', {
+      title: targetName ? `老人想联系${targetName}` : '老人想联系家人',
+      message: targetName
+        ? `老人希望联系${targetName}${targetPhone ? `（${targetPhone}）` : ''}，发起时间 ${now.toLocaleTimeString('zh-CN', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}。`
+        : `老人希望家人联系自己（${now.toLocaleTimeString('zh-CN', {
         hour: '2-digit',
         minute: '2-digit',
-      })}）`,
+          })}）`,
+      metadata: {
+        action: targetPhone ? 'phone_call_requested' : 'family_contact_requested',
+        contact_user_id: contact?.id,
+        contact_name: targetName || '',
+        contact_phone: targetPhone || '',
+      },
     },
   });
 
@@ -459,6 +537,63 @@ export async function getLatestMood(
   return data.record;
 }
 
+export async function getElderlyProfileStats(
+  familyId = DEFAULT_FAMILY_ID,
+  elderlyId = DEFAULT_ELDERLY_ID
+) {
+  const resolvedFamilyId = resolveFamilyId(familyId);
+  const resolvedElderlyId = resolveElderlyId(elderlyId);
+  const alertParams = buildQueryString({
+    family_id: resolvedFamilyId,
+    elderly_id: String(resolvedElderlyId),
+    limit: 500,
+  });
+
+  const [usersResult, moodsResult, mediaHistoryResult, alertsResult, messagesResult, aiResult] = await Promise.allSettled([
+    getFamilyUsers(resolvedFamilyId),
+    getMoodRecords(resolvedFamilyId, resolvedElderlyId, 500),
+    getMediaHistory(resolvedElderlyId, 500),
+    request<{ alerts: Array<{ source?: string }>; total?: number }>(`/family/alerts?${alertParams}`),
+    getElderlyMessages(resolvedFamilyId),
+    getAiInteractions(500),
+  ]);
+
+  const users = usersResult.status === 'fulfilled' ? usersResult.value : [];
+  const moods = moodsResult.status === 'fulfilled' ? moodsResult.value : [];
+  const mediaHistory = mediaHistoryResult.status === 'fulfilled' ? mediaHistoryResult.value : [];
+  const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value.alerts || [] : [];
+  const messages = messagesResult.status === 'fulfilled' ? messagesResult.value : [];
+  const aiInteractions = aiResult.status === 'fulfilled' ? aiResult.value : [];
+  const elderly =
+    users.find((item) => item.id === resolvedElderlyId && item.user_type === 'elderly') ||
+    users.find((item) => item.user_type === 'elderly');
+  const favoriteMediaIds = new Set(
+    mediaHistory
+      .filter((item) => item.feedback_type === 'like')
+      .map((item) => item.media_id)
+  );
+  const createdAt = elderly?.created_at;
+  const createdDate = createdAt ? new Date(createdAt.replace(' ', 'T')) : null;
+  const companionDays =
+    createdDate && !Number.isNaN(createdDate.getTime())
+      ? Math.max(1, Math.floor((Date.now() - createdDate.getTime()) / 86400000) + 1)
+      : 0;
+
+  return {
+    elderly_id: resolvedElderlyId,
+    elderly_name: elderly?.name,
+    companion_days: companionDays,
+    interaction_count:
+      moods.length +
+      mediaHistory.length +
+      alerts.filter((item) => item.source === 'elderly').length +
+      messages.filter((item) => item.played).length +
+      aiInteractions.length,
+    favorite_memories: favoriteMediaIds.size,
+    created_at: createdAt,
+  };
+}
+
 export async function getElderlyCareInsight(
   familyId = DEFAULT_FAMILY_ID,
   elderlyId = DEFAULT_ELDERLY_ID
@@ -501,6 +636,9 @@ export async function createConsultation(payload: {
   duration?: number;
   status?: Consultation['status'];
   note?: string;
+  notify_service?: boolean;
+  concern_level?: 'high' | 'medium' | 'low';
+  topic?: string;
 }) {
   const data = await request<{ consultation_id: number }>('/consultations', {
     method: 'POST',
@@ -513,6 +651,9 @@ export async function createConsultation(payload: {
       duration: payload.duration ?? 45,
       status: payload.status ?? 'scheduled',
       note: payload.note || '',
+      notify_service: payload.notify_service ?? false,
+      concern_level: payload.concern_level,
+      topic: payload.topic,
     },
   });
 
@@ -532,9 +673,37 @@ export async function updateConsultation(
 ) {
   const data = await request<{ success: boolean }>(`/consultations/${consultationId}`, {
     method: 'PUT',
-    data: payload,
+    data: {
+      family_id: resolveFamilyId(),
+      ...payload,
+    },
   });
   return data.success;
+}
+
+export async function requestPsychologicalSupport(payload: {
+  family_id?: string;
+  elderly_id?: number;
+  topic: string;
+  level?: 'high' | 'medium' | 'low';
+  note?: string;
+}) {
+  const data = await request<{ success?: boolean; alert_id: number }>('/elderly/alerts', {
+    method: 'POST',
+    data: {
+      family_id: resolveFamilyId(payload.family_id || DEFAULT_FAMILY_ID),
+      elderly_id: resolveElderlyId(payload.elderly_id),
+      alert_type: 'psychological_support',
+      level: payload.level || 'medium',
+      title: '心理咨询协同',
+      message: payload.note || `老人端提交心理支持需求：${payload.topic}`,
+      metadata: {
+        topic: payload.topic,
+        source: 'elderly_psychological_consulting',
+      },
+    },
+  });
+  return data.alert_id;
 }
 
 export async function getAiInteractions(limit = 30) {

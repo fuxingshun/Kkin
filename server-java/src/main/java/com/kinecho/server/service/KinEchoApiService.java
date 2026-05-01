@@ -1,6 +1,7 @@
 package com.kinecho.server.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.kinecho.server.config.KinEchoProperties;
 import com.kinecho.server.mapper.KinEchoMapper;
 import org.springframework.http.HttpHeaders;
@@ -34,6 +35,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -86,6 +88,36 @@ public class KinEchoApiService {
             default -> bad("invalid role");
         };
     }
+
+    public ResponseEntity<Map<String, Object>> wechatLogin(Map<String, Object> data) {
+        if (!has(data, "role", "code")) {
+            return bad("missing required fields");
+        }
+
+        String role = db.string(data.get("role")).trim().toLowerCase();
+        String code = db.string(data.get("code")).trim();
+        if (blank(code)) {
+            return bad("wechat code is required");
+        }
+
+        if (!List.of("elderly", "family", "service").contains(role)) {
+            return bad("invalid role");
+        }
+
+        try {
+            WechatSession wechatSession = resolveWechatSession(role, code);
+            Map<String, Object> userInfo = asMap(data.get("user_info"));
+            return switch (role) {
+                case "elderly" -> loginWechatUser("elderly", wechatSession, userInfo);
+                case "family" -> loginWechatUser("family", wechatSession, userInfo);
+                case "service" -> loginWechatService(wechatSession.openid());
+                default -> bad("invalid role");
+            };
+        } catch (Exception error) {
+            return status(HttpStatus.BAD_GATEWAY, db.map("error", "wechat login failed: " + error.getMessage()));
+        }
+    }
+
     public ResponseEntity<Map<String, Object>> getFamilySchedules(String family_id) {
         if (blank(family_id)) {
             return bad("missing family_id");
@@ -424,6 +456,77 @@ public class KinEchoApiService {
         Map<String, Object> record = db.one("SELECT * FROM mood_records WHERE " + query.where + " ORDER BY recorded_at DESC LIMIT 1", query.args()).orElse(null);
         return ok("record", record);
     }
+
+    public ResponseEntity<Map<String, Object>> getElderlyProfileStats(String familyId, Long elderlyId) {
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+        Map<String, Object> elderly = null;
+        if (elderlyId != null && elderlyId > 0) {
+            elderly = db.one("""
+                SELECT id, name, created_at
+                FROM users
+                WHERE id = ? AND family_id = ? AND user_type = 'elderly' AND is_active = 1
+                LIMIT 1
+                """, elderlyId, familyId).orElse(null);
+        }
+        if (elderly == null) {
+            elderly = db.one("""
+                SELECT id, name, created_at
+                FROM users
+                WHERE family_id = ? AND user_type = 'elderly' AND is_active = 1
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """, familyId).orElse(null);
+        }
+        if (elderly == null) {
+            return notFound("elderly not found");
+        }
+
+        long resolvedElderlyId = db.longValue(elderly.get("id"), 0);
+        LocalDateTime createdAt = db.parseDateTime(elderly.get("created_at"));
+        long companionDays = 0;
+        if (createdAt != null) {
+            companionDays = Math.max(1, LocalDate.now(properties.zoneId).toEpochDay() - createdAt.toLocalDate().toEpochDay() + 1);
+        }
+
+        long moodCount = db.count("""
+            SELECT COUNT(*)
+            FROM mood_records
+            WHERE family_id = ? AND elderly_id = ?
+            """, familyId, resolvedElderlyId);
+        long mediaPlayCount = db.count("""
+            SELECT COUNT(*)
+            FROM media_play_history
+            WHERE elderly_id = ?
+            """, resolvedElderlyId);
+        long alertCount = db.count("""
+            SELECT COUNT(*)
+            FROM family_alerts
+            WHERE family_id = ? AND elderly_id = ? AND source = 'elderly' AND is_active = 1
+            """, familyId, resolvedElderlyId);
+        long playedMessageCount = db.count("""
+            SELECT COUNT(*)
+            FROM family_messages
+            WHERE family_id = ? AND played = 1 AND is_active = 1
+            """, familyId);
+        long aiInteractionCount = db.count("SELECT COUNT(*) FROM ai_interactions");
+        long favoriteMemories = db.count("""
+            SELECT COUNT(*)
+            FROM media_feedback
+            WHERE elderly_id = ? AND feedback_type = 'like'
+            """, resolvedElderlyId);
+
+        return ok(db.map(
+            "elderly_id", resolvedElderlyId,
+            "elderly_name", elderly.get("name"),
+            "companion_days", companionDays,
+            "interaction_count", moodCount + mediaPlayCount + alertCount + playedMessageCount + aiInteractionCount,
+            "favorite_memories", favoriteMemories,
+            "created_at", elderly.get("created_at")
+        ));
+    }
+
     public ResponseEntity<Map<String, Object>> getWeather(Map<String, String> params) {
         String familyId = params.get("family_id");
         if (blank(familyId)) {
@@ -553,9 +656,10 @@ public class KinEchoApiService {
 
         long resolvedElderlyId = db.longValue(elderly.get("id"), 0);
         String elderlyName = db.string(elderly.get("name"));
-        LocalDate today = LocalDate.now(properties.zoneId);
-        String sinceYesterday = LocalDateTime.now(properties.zoneId).minusDays(1).format(DATE_TIME);
-        String sinceSevenDays = LocalDateTime.now(properties.zoneId).minusDays(7).format(DATE_TIME);
+        LocalDateTime now = LocalDateTime.now(properties.zoneId);
+        LocalDate today = now.toLocalDate();
+        String sinceYesterday = now.minusDays(1).format(DATE_TIME);
+        String sinceSevenDays = now.minusDays(7).format(DATE_TIME);
 
         Map<String, Object> latestMood = db.one("""
             SELECT *
@@ -607,11 +711,15 @@ public class KinEchoApiService {
             ? 0
             : (int) Math.round(completedTasks * 100.0 / todaySchedules.size());
 
-        long pendingMessages = db.count("""
-            SELECT COUNT(*)
+        List<Map<String, Object>> pendingMessageRows = db.list("""
+            SELECT scheduled_time
             FROM family_messages
             WHERE family_id = ? AND is_active = 1 AND played = 0
             """, familyId);
+        long pendingMessages = pendingMessageRows.stream()
+            .map(item -> db.parseDateTime(item.get("scheduled_time")))
+            .filter(scheduled -> scheduled != null && scheduled.toLocalDate().equals(today) && !scheduled.isAfter(now))
+            .count();
         long recentAiMessages = db.count("""
             SELECT COUNT(*)
             FROM ai_interactions
@@ -673,6 +781,140 @@ public class KinEchoApiService {
             "metrics", metrics,
             "generated_at", LocalDateTime.now(properties.zoneId).format(DATE_TIME)
         ));
+    }
+
+    public ResponseEntity<Map<String, Object>> createLiveMentalScreening(MultipartFile frame,
+                                                                         String familyId,
+                                                                         Long elderlyId,
+                                                                         int frameCount,
+                                                                         int completedActions,
+                                                                         int livenessScore,
+                                                                         int qualityScore,
+                                                                         String consentVersion) {
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+        if (elderlyId == null || elderlyId <= 0) {
+            return bad("missing elderly_id");
+        }
+        if (frame == null || frame.isEmpty() || frame.getOriginalFilename() == null || !allowedMentalFrame(frame.getOriginalFilename())) {
+            return bad("unsupported or empty frame");
+        }
+
+        Map<String, Object> elderly = db.one("""
+            SELECT id, name
+            FROM users
+            WHERE family_id = ? AND user_type = 'elderly' AND is_active = 1 AND id = ?
+            LIMIT 1
+            """, familyId, elderlyId).orElse(null);
+        if (elderly == null) {
+            return notFound("elderly not found");
+        }
+
+        try {
+            Path dir = properties.uploadDir.resolve("mental-screenings");
+            Files.createDirectories(dir);
+            String ext = extension(frame.getOriginalFilename());
+            String filename = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSSSSS").format(LocalDateTime.now(properties.zoneId))
+                + "-" + UUID.randomUUID().toString().substring(0, 8) + "." + ext;
+            Path target = dir.resolve(filename);
+            frame.transferTo(target);
+            String framePath = "mental-screenings/" + filename;
+
+            int normalizedFrameCount = Math.max(1, Math.min(frameCount, 8));
+            int normalizedActions = Math.max(0, Math.min(completedActions, 4));
+            int normalizedLiveness = clampScore(livenessScore <= 0 ? normalizedActions * 25 : livenessScore);
+            int normalizedQuality = clampScore(qualityScore <= 0 ? 80 : qualityScore);
+            Map<String, Object> analysis = mentalScreeningAnalysis(normalizedActions, normalizedLiveness, normalizedQuality);
+
+            long id = db.insert("""
+                INSERT INTO mental_screenings (
+                    family_id, elderly_id, capture_mode, risk_level, risk_score, status_label, summary, recommendation,
+                    frame_path, frame_count, completed_actions, liveness_score, quality_score, consent_version, source
+                )
+                VALUES (?, ?, 'live_camera', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'elderly')
+                """,
+                familyId,
+                elderlyId,
+                analysis.get("risk_level"),
+                analysis.get("risk_score"),
+                analysis.get("status_label"),
+                analysis.get("summary"),
+                analysis.get("recommendation"),
+                framePath,
+                normalizedFrameCount,
+                normalizedActions,
+                normalizedLiveness,
+                normalizedQuality,
+                blank(consentVersion) ? "mental-screening-live-v1" : consentVersion
+            );
+
+            Long alertId = null;
+            String riskLevel = db.string(analysis.get("risk_level"));
+            if ("medium".equals(riskLevel) || "high".equals(riskLevel)) {
+                String level = "high".equals(riskLevel) ? "high" : "medium";
+                Map<String, Object> alertData = db.map(
+                    "family_id", familyId,
+                    "elderly_id", elderlyId,
+                    "alert_type", "emotion",
+                    "level", level,
+                    "title", "心理关怀筛查提醒",
+                    "message", analysis.get("recommendation"),
+                    "metadata", db.map("screening_id", id, "risk_score", analysis.get("risk_score"), "source", "live_camera")
+                );
+                alertId = insertAlert(alertData, "system");
+            }
+
+            auditCareAction(familyId, elderlyId, "elderly", "elderly", "mental_screening_created",
+                db.string(analysis.get("summary")), db.map("screening_id", id, "frame_count", normalizedFrameCount, "alert_id", alertId));
+
+            Map<String, Object> record = mentalScreeningRecord(id);
+            record.put("alert_id", alertId);
+            record.put("disclaimer", "本结果仅用于健康关怀和风险筛查参考，不作为医学诊断。");
+            return created(record);
+        } catch (IOException error) {
+            return status(HttpStatus.INTERNAL_SERVER_ERROR, db.map("error", "failed to save mental screening frame"));
+        }
+    }
+
+    public ResponseEntity<Map<String, Object>> getLatestMentalScreening(String familyId, Long elderlyId) {
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+        QueryParts query = new QueryParts("ms.family_id = ? AND ms.is_active = 1", familyId);
+        if (elderlyId != null && elderlyId > 0) {
+            query.add("ms.elderly_id = ?", elderlyId);
+        }
+        Map<String, Object> record = db.one("""
+            SELECT ms.*, u.name AS elderly_name
+            FROM mental_screenings ms
+            LEFT JOIN users u ON ms.elderly_id = u.id
+            WHERE %s
+            ORDER BY ms.created_at DESC, ms.id DESC
+            LIMIT 1
+            """.formatted(query.where), query.args()).orElse(null);
+        return ok(db.map("record", record));
+    }
+
+    public ResponseEntity<Map<String, Object>> getMentalScreenings(String familyId, Long elderlyId, int limit) {
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+        QueryParts query = new QueryParts("ms.family_id = ? AND ms.is_active = 1", familyId);
+        if (elderlyId != null && elderlyId > 0) {
+            query.add("ms.elderly_id = ?", elderlyId);
+        }
+        List<Object> args = query.argsList();
+        args.add(Math.max(1, Math.min(limit, 50)));
+        List<Map<String, Object>> records = db.list("""
+            SELECT ms.*, u.name AS elderly_name
+            FROM mental_screenings ms
+            LEFT JOIN users u ON ms.elderly_id = u.id
+            WHERE %s
+            ORDER BY ms.created_at DESC, ms.id DESC
+            LIMIT ?
+            """.formatted(query.where), args.toArray());
+        return ok(db.map("records", records));
     }
 
     public ResponseEntity<Map<String, Object>> getFamilyInteractions(String username,
@@ -1676,9 +1918,93 @@ public class KinEchoApiService {
 
     public ResponseEntity<Map<String, Object>> getCounselors() {
         List<Map<String, Object>> counselors = db.list("SELECT * FROM counselors WHERE is_active = 1 ORDER BY available DESC, rating DESC, id ASC");
-        counselors.forEach(item -> item.put("available", db.boolValue(item.get("available"))));
+        counselors.forEach(this::normalizeCounselor);
         return ok("counselors", counselors);
     }
+
+    private void normalizeCounselor(Map<String, Object> item) {
+        item.put("available", db.boolValue(item.get("available")));
+        item.put("price", db.intValue(item.get("price"), 300));
+        item.put("discount_price", db.intValue(item.get("discount_price"), 210));
+        item.put("tags", db.jsonList(item.get("tags")).stream().map(String::valueOf).toList());
+        item.put("experience_stats", db.jsonMap(item.get("experience_stats")));
+        item.put("specialties", db.jsonList(item.get("specialties")));
+        item.put("packages", db.jsonList(item.get("packages")));
+        item.put("calendar", db.jsonMap(item.get("calendar")));
+        item.put("notices", db.jsonList(item.get("notices")));
+    }
+
+    public ResponseEntity<Map<String, Object>> getPsychologyResources() {
+        List<Map<String, Object>> videos = db.list("""
+            SELECT *
+            FROM psychology_videos
+            WHERE is_active = 1
+            ORDER BY sort_order ASC, id ASC
+            """);
+        videos.forEach(this::normalizePsychologyVideo);
+
+        List<Map<String, Object>> categories = db.list("""
+            SELECT id, name, icon, class_name, sort_order
+            FROM psychology_categories
+            WHERE is_active = 1
+            ORDER BY sort_order ASC, id ASC
+            """);
+
+        List<Map<String, Object>> questions = db.list("""
+            SELECT q.id, q.question, q.sort_order, COUNT(r.id) AS reply_count
+            FROM psychology_questions q
+            LEFT JOIN psychology_question_replies r ON r.question_id = q.id AND r.is_active = 1
+            WHERE q.is_active = 1
+            GROUP BY q.id, q.question, q.sort_order
+            ORDER BY q.sort_order ASC, q.id ASC
+            """);
+
+        return ok(db.map(
+            "videos", videos,
+            "categories", categories,
+            "questions", questions
+        ));
+    }
+
+    public ResponseEntity<Map<String, Object>> getPsychologyQuestion(long questionId) {
+        Map<String, Object> question = db.one("""
+            SELECT q.id, q.question, q.sort_order, COUNT(r.id) AS reply_count
+            FROM psychology_questions q
+            LEFT JOIN psychology_question_replies r ON r.question_id = q.id AND r.is_active = 1
+            WHERE q.id = ? AND q.is_active = 1
+            GROUP BY q.id, q.question, q.sort_order
+            LIMIT 1
+            """, questionId).orElse(null);
+        if (question == null) {
+            return notFound("question not found");
+        }
+
+        List<Map<String, Object>> replies = db.list("""
+            SELECT id, question_id, reply_type, author_name, author_role, content, like_count, sort_order, created_at
+            FROM psychology_question_replies
+            WHERE question_id = ? AND is_active = 1
+            ORDER BY sort_order ASC, id ASC
+            """, questionId);
+
+        return ok(db.map("question", question, "replies", replies));
+    }
+
+    public String psychologyVideoSource(String slug) {
+        if (blank(slug)) {
+            return "";
+        }
+        return db.string(db.one("""
+            SELECT source_url
+            FROM psychology_videos
+            WHERE slug = ? AND is_active = 1
+            LIMIT 1
+            """, slug).map(row -> row.get("source_url")).orElse(""));
+    }
+
+    private void normalizePsychologyVideo(Map<String, Object> item) {
+        item.put("takeaways", db.jsonList(item.get("takeaways")).stream().map(String::valueOf).toList());
+    }
+
     public ResponseEntity<Map<String, Object>> getConsultations(Map<String, String> params) {
         String familyId = params.get("family_id");
         if (blank(familyId)) {
@@ -1686,6 +2012,7 @@ public class KinEchoApiService {
         }
         QueryParts query = new QueryParts("c.family_id = ?", familyId);
         addEquals(query, "c.elderly_id", params.get("elderly_id"));
+        addEquals(query, "c.status", params.get("status"));
         int limit = intParam(params, "limit", 20);
         List<Object> args = query.argsList();
         args.add(limit);
@@ -1703,16 +2030,52 @@ public class KinEchoApiService {
         if (!has(data, "family_id", "scheduled_time")) {
             return bad("missing required fields");
         }
+        String familyId = db.string(data.get("family_id"));
+        Object elderlyId = value(data, "elderly_id", null);
+        Object counselorId = value(data, "counselor_id", null);
+        String consultationType = db.string(value(data, "consultation_type", "phone"));
+        String note = db.string(value(data, "note", ""));
+        String status = db.string(value(data, "status", "scheduled"));
         long id = db.insert("""
             INSERT INTO consultations (family_id, elderly_id, counselor_id, consultation_type, scheduled_time, duration, status, note)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, data.get("family_id"), data.get("elderly_id"), data.get("counselor_id"),
-            value(data, "consultation_type", "phone"), data.get("scheduled_time"), value(data, "duration", 45),
-            value(data, "status", "scheduled"), value(data, "note", ""));
-        return created(db.map("success", true, "consultation_id", id));
+            """, familyId, elderlyId, counselorId, consultationType, data.get("scheduled_time"), value(data, "duration", 45),
+            status, note);
+
+        auditCareAction(familyId, elderlyId, "elderly", "elderly", "consultation_created",
+            blank(note) ? "老人端创建心理咨询预约" : note, db.map("consultation_id", id, "payload", data));
+
+        Long alertId = null;
+        if (db.boolValue(value(data, "notify_service", false))) {
+            String concernLevel = normalizePriority(db.string(value(data, "concern_level", "medium")));
+            String topic = db.string(value(data, "topic", "心理咨询协同")).trim();
+            String title = "心理咨询协同";
+            String message = blank(topic)
+                ? "老人端创建了心理咨询预约，请服务人员跟进。"
+                : "老人端提交心理咨询需求：" + topic + "。请服务人员确认预约并持续跟进。";
+            Map<String, Object> alertData = db.map(
+                "family_id", familyId,
+                "elderly_id", elderlyId,
+                "alert_type", "psychological_support",
+                "level", concernLevel,
+                "title", title,
+                "message", message,
+                "metadata", db.map(
+                    "consultation_id", id,
+                    "consultation_type", consultationType,
+                    "scheduled_time", data.get("scheduled_time"),
+                    "topic", topic
+                )
+            );
+            alertId = insertAlert(alertData, "elderly");
+            auditCareAction(familyId, elderlyId, "elderly", "elderly", "psychological_support_requested",
+                message, db.map("consultation_id", id, "alert_id", alertId, "payload", data));
+        }
+
+        return created(db.map("success", true, "consultation_id", id, "alert_id", alertId));
     }
     public ResponseEntity<Map<String, Object>> updateConsultation(long consultationId, Map<String, Object> data) {
-        return familyScopedUpdate(
+        ResponseEntity<Map<String, Object>> response = familyScopedUpdate(
             "consultations",
             consultationId,
             db.string(data.get("family_id")),
@@ -1721,6 +2084,13 @@ public class KinEchoApiService {
             "consultation",
             false
         );
+        if (response.getStatusCode().is2xxSuccessful()) {
+            Map<String, Object> row = db.one("SELECT family_id, elderly_id, note FROM consultations WHERE id = ? LIMIT 1", consultationId).orElse(Map.of());
+            auditCareAction(db.string(row.get("family_id")), row.get("elderly_id"), "elderly", "elderly",
+                "consultation_updated", db.string(value(row, "note", "心理咨询预约已更新")),
+                db.map("consultation_id", consultationId, "payload", data));
+        }
+        return response;
     }
     public ResponseEntity<Map<String, Object>> uploadMedia(MultipartFile file,
                                                            String family_id,
@@ -2297,6 +2667,7 @@ public class KinEchoApiService {
             case "contact_family" -> "联系家人";
             case "medication" -> "用药提醒";
             case "emotion" -> "情绪波动";
+            case "psychological_support" -> "心理咨询协同";
             case "inactive" -> "长时间未活动";
             case "emergency" -> "异常事件";
             default -> "服务工单";
@@ -2488,6 +2859,50 @@ public class KinEchoApiService {
             "source", source, "weather_code", codeValue, "temperature", temperatureValue);
     }
 
+    private Map<String, Object> mentalScreeningRecord(long id) {
+        return db.one("""
+            SELECT ms.*, u.name AS elderly_name
+            FROM mental_screenings ms
+            LEFT JOIN users u ON ms.elderly_id = u.id
+            WHERE ms.id = ?
+            LIMIT 1
+            """, id).orElseGet(LinkedHashMap::new);
+    }
+
+    private Map<String, Object> mentalScreeningAnalysis(int completedActions, int livenessScore, int qualityScore) {
+        int actionScore = clampScore(completedActions * 25);
+        int readiness = (int) Math.round(actionScore * 0.35 + livenessScore * 0.35 + qualityScore * 0.30);
+        if (completedActions < 3 || livenessScore < 65 || qualityScore < 55) {
+            return db.map(
+                "risk_level", "review",
+                "risk_score", Math.max(35, 100 - readiness),
+                "status_label", "建议复查",
+                "summary", "本次现场采集质量不足，暂不生成明确心理风险判断。",
+                "recommendation", "建议在光线更好的环境中重新检测，并结合一次简短情绪问卷。"
+            );
+        }
+        if (readiness < 75) {
+            return db.map(
+                "risk_level", "medium",
+                "risk_score", Math.min(72, 100 - readiness + 28),
+                "status_label", "建议关注",
+                "summary", "本次现场采集完成，但状态信号不够稳定，建议家属进行轻量关怀。",
+                "recommendation", "建议今天安排一次电话或语音陪伴，并在 24 小时内复测。"
+            );
+        }
+        return db.map(
+            "risk_level", "low",
+            "risk_score", Math.max(12, 100 - readiness),
+            "status_label", "状态平稳",
+            "summary", "本次现场采集完成，未发现需要立即预警的心理风险信号。",
+            "recommendation", "保持日常陪伴和规律作息，后续可每周进行一次心理关怀筛查。"
+        );
+    }
+
+    private int clampScore(int value) {
+        return Math.max(0, Math.min(value, 100));
+    }
+
     private Map<String, Object> rowsToCountMap(List<Map<String, Object>> rows, String keyColumn) {
         Map<String, Object> result = new LinkedHashMap<>();
         for (Map<String, Object> row : rows) {
@@ -2549,6 +2964,11 @@ public class KinEchoApiService {
     private boolean allowedFile(String filename) {
         String ext = extension(filename);
         return List.of("png", "jpg", "jpeg", "gif", "mp4", "mov", "avi").contains(ext);
+    }
+
+    private boolean allowedMentalFrame(String filename) {
+        String ext = extension(filename);
+        return List.of("png", "jpg", "jpeg").contains(ext);
     }
 
     private String extension(String filename) {
@@ -2616,6 +3036,74 @@ public class KinEchoApiService {
         return UUID.randomUUID().toString().replace("-", "").toUpperCase();
     }
 
+    private WechatSession resolveWechatSession(String role, String code) throws IOException, InterruptedException {
+        if (blank(properties.wechatAppId) || blank(properties.wechatAppSecret)) {
+            return new WechatSession("dev-wechat-openid-" + role, "");
+        }
+
+        String url = "https://api.weixin.qq.com/sns/jscode2session"
+            + "?appid=" + enc(properties.wechatAppId)
+            + "&secret=" + enc(properties.wechatAppSecret)
+            + "&js_code=" + enc(code)
+            + "&grant_type=authorization_code";
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+            .timeout(Duration.ofSeconds(8))
+            .GET()
+            .build();
+        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        Map<String, Object> body = mapper.readValue(response.body(), new TypeReference<>() {});
+        if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            throw new IOException("code2session returned " + response.statusCode());
+        }
+        Object errcode = body.get("errcode");
+        if (errcode != null && !"0".equals(db.string(errcode))) {
+            throw new IOException(db.string(value(body, "errmsg", "invalid wechat code")));
+        }
+
+        String openid = db.string(body.get("openid")).trim();
+        if (blank(openid)) {
+            throw new IOException("wechat openid is empty");
+        }
+        return new WechatSession(openid, db.string(body.get("unionid")).trim());
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object value) {
+        return value instanceof Map<?, ?> map ? (Map<String, Object>) map : Map.of();
+    }
+
+    private void bindWechatUser(Map<String, Object> user, WechatSession wechatSession, Map<String, Object> userInfo) {
+        db.update("""
+            UPDATE users
+            SET wechat_openid = ?, wechat_unionid = ?, wechat_nickname = ?, wechat_avatar = ?,
+                updated_by = 'wechat-login', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            wechatSession.openid(),
+            blank(wechatSession.unionid()) ? null : wechatSession.unionid(),
+            db.string(userInfo.get("nickName")),
+            db.string(userInfo.get("avatarUrl")),
+            user.get("id"));
+    }
+
+    private void updateWechatProfile(Map<String, Object> user, WechatSession wechatSession, Map<String, Object> userInfo) {
+        if (userInfo.isEmpty() && blank(wechatSession.unionid())) {
+            return;
+        }
+        db.update("""
+            UPDATE users
+            SET wechat_unionid = COALESCE(NULLIF(?, ''), wechat_unionid),
+                wechat_nickname = COALESCE(NULLIF(?, ''), wechat_nickname),
+                wechat_avatar = COALESCE(NULLIF(?, ''), wechat_avatar),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            wechatSession.unionid(),
+            db.string(userInfo.get("nickName")),
+            db.string(userInfo.get("avatarUrl")),
+            user.get("id"));
+    }
+
     private ResponseEntity<Map<String, Object>> loginUser(String userType, String username, String password) {
         Map<String, Object> user = db.one("""
             SELECT id, user_type, name, phone, family_id, binding_code
@@ -2631,6 +3119,53 @@ public class KinEchoApiService {
             return unauthorized("username or password is incorrect");
         }
 
+        return ok(userLoginBody(userType, user));
+    }
+
+    private ResponseEntity<Map<String, Object>> loginWechatUser(String userType, WechatSession wechatSession, Map<String, Object> userInfo) {
+        Map<String, Object> user = db.one("""
+            SELECT id, user_type, name, phone, family_id, binding_code, wechat_openid
+            FROM users
+            WHERE user_type = ? AND is_active = 1 AND wechat_openid = ?
+            ORDER BY created_at
+            LIMIT 1
+            """, userType, wechatSession.openid()).orElse(null);
+
+        if (user == null) {
+            user = db.one("""
+                SELECT id, user_type, name, phone, family_id, binding_code, wechat_openid
+                FROM users
+                WHERE user_type = ? AND is_active = 1 AND (wechat_openid IS NULL OR wechat_openid = '')
+                ORDER BY created_at
+                LIMIT 1
+                """, userType).orElse(null);
+            if (user == null) {
+                return notFound("wechat account is not bound");
+            }
+            bindWechatUser(user, wechatSession, userInfo);
+        } else {
+            updateWechatProfile(user, wechatSession, userInfo);
+        }
+
+        return ok(userLoginBody(userType, user));
+    }
+
+    private ResponseEntity<Map<String, Object>> loginWechatService(String openid) {
+        if (!blank(properties.serviceWechatOpenid) && !properties.serviceWechatOpenid.equals(openid)) {
+            return unauthorized("wechat account is not allowed for service role");
+        }
+
+        Map<String, Object> body = db.map(
+            "success", true,
+            "role", "service",
+            "username", "wechat-service",
+            "display_name", properties.serviceDisplayName,
+            "family_id", properties.serviceFamilyId
+        );
+        return ok(body);
+    }
+
+    private Map<String, Object> userLoginBody(String userType, Map<String, Object> user) {
         long userId = db.longValue(user.get("id"), 0);
         String familyId = db.string(user.get("family_id"));
         Map<String, Object> body = db.map(
@@ -2660,7 +3195,7 @@ public class KinEchoApiService {
             }
         }
 
-        return ok(body);
+        return body;
     }
 
     private ResponseEntity<Map<String, Object>> loginOperator(String role,
@@ -2690,7 +3225,7 @@ public class KinEchoApiService {
         if (phone.length() >= 6 && password.equals(phone.substring(phone.length() - 6))) {
             return true;
         }
-        return password.equals(properties.demoLoginPassword);
+        return !blank(properties.demoLoginPassword) && password.equals(properties.demoLoginPassword);
     }
 
     private String computeCaseRiskLevel(Integer moodScore, long openAlertCount, boolean hasHighAlert, boolean hasMediumAlert) {
@@ -2733,6 +3268,9 @@ public class KinEchoApiService {
 
     private ResponseEntity<Map<String, Object>> status(HttpStatus status, Map<String, Object> body) {
         return ResponseEntity.status(status).body(body);
+    }
+
+    private record WechatSession(String openid, String unionid) {
     }
 
     private static final class QueryParts {

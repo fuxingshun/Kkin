@@ -26,6 +26,20 @@ function includesAll(text, values) {
   return values.every((value) => text.includes(value));
 }
 
+function routeRegistered(appConfig, route) {
+  if (appConfig.includes(`'${route}'`) || appConfig.includes(`"${route}"`)) {
+    return true;
+  }
+
+  const parts = route.split('/');
+  const root = parts.slice(0, 2).join('/');
+  const page = parts.slice(2).join('/');
+  return (
+    (appConfig.includes(`root: '${root}'`) || appConfig.includes(`root: "${root}"`)) &&
+    (appConfig.includes(`'${page}'`) || appConfig.includes(`"${page}"`))
+  );
+}
+
 async function checkApiHealth() {
   try {
     const response = await fetch(`${apiBaseUrl.replace(/\/$/, '')}/health`, { headers: authHeaders() });
@@ -132,6 +146,7 @@ async function main() {
     'miniapp/src/pages/elderly/basic-info/index.tsx',
     'miniapp/src/pages/elderly/family-bindings/index.tsx',
     'miniapp/src/pages/elderly/record-history/index.tsx',
+    'miniapp/src/pages/elderly/psychology-video/index.tsx',
     'miniapp/src/pages/family/bind-elderly/index.tsx',
     'miniapp/src/pages/family/dashboard/index.tsx',
     'miniapp/src/pages/service/workspace/index.tsx',
@@ -143,7 +158,36 @@ async function main() {
 
   addCheck(
     'elderly profile routes registered',
-    includesAll(appConfig, ['pages/elderly/basic-info/index', 'pages/elderly/family-bindings/index', 'pages/elderly/record-history/index']),
+    ['pages/elderly/basic-info/index', 'pages/elderly/family-bindings/index', 'pages/elderly/record-history/index'].every((route) =>
+      routeRegistered(appConfig, route)
+    ),
+    'app.config.ts'
+  );
+
+  const psychologyConsultingPage = readText('miniapp/src/pages/elderly/psychological-consulting/index.tsx');
+  const psychologyVideoPage = readText('miniapp/src/pages/elderly/psychology-video/index.tsx');
+  const psychologyVideoData = readText('miniapp/src/constants/psychologyVideos.ts');
+  const psychologyVideoProxy = readText('server-java/src/main/java/com/kinecho/server/controller/PsychologyVideoAssetController.java');
+
+  addCheck(
+    'elderly psychology video route registered',
+    routeRegistered(appConfig, 'pages/elderly/psychology-video/index'),
+    'app.config.ts'
+  );
+
+  addCheck(
+    'elderly psychology encyclopedia opens videos',
+    includesAll(psychologyConsultingPage, ['psychologyVideos', 'openPsychologyVideo', '/pages/elderly/psychology-video/index?id=']) &&
+      includesAll(psychologyVideoPage, ['<Swiper', 'vertical', '<Video', 'fallbackVideoUrl', '上下滑动切换中文讲解', '咨询']) &&
+      includesAll(psychologyVideoData, ['getMiniappAssetOrigin', '/psychology-videos/', 'videoUrl', 'fallbackVideoUrl', 'sourceUrl', 'takeaways']) &&
+      !psychologyVideoData.includes('upload.wikimedia.org') &&
+      includesAll(psychologyVideoProxy, ['@GetMapping("/psychology-videos/{videoId}.mp4")', 'file8.foodmate.net', 'flv1.gmw.cn', 'ACCEPT_RANGES', 'HttpResponse.BodyHandlers.ofInputStream']),
+    'elderly psychology encyclopedia video flow'
+  );
+
+  addCheck(
+    'role pages split into subpackages',
+    includesAll(appConfig, ["root: 'pages/family'", "root: 'pages/elderly'", "root: 'pages/service'"]),
     'app.config.ts'
   );
 
@@ -336,7 +380,9 @@ async function main() {
       'canUseBailianChat',
     ]) &&
       includesAll(userService, ['return ok(aiCompanion.fallbackChat(message, user, ex.getMessage()))']) &&
-      includesAll(appYml, ['bailian-chat-model: qwen-turbo', 'bailian-chat-timeout-seconds: 10', 'bailian-tts-timeout-seconds: 4']) &&
+      (includesAll(appYml, ['bailian-chat-model: qwen-turbo', 'bailian-chat-timeout-seconds: 10']) ||
+        includesAll(appYml, ['KINECHO_BAILIAN_CHAT_MODEL:qwen-turbo', 'KINECHO_BAILIAN_CHAT_TIMEOUT_SECONDS:10'])) &&
+      includesAll(appYml, ['bailian-tts-timeout-seconds: 4']) &&
       includesAll(aiCompanionServiceClient, ['AI_CHAT_TIMEOUT = 18000', 'AI_VOICE_CHAT_TIMEOUT = 120000']),
     'AI chat should wait for provider while still degrading before miniapp timeout'
   );

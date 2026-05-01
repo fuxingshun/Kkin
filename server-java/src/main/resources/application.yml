@@ -22,16 +22,19 @@ kinecho:
   upload-dir: server/uploads
   ai-audio-dir: server/uploads/ai-audio
   ai-voice-upload-dir: server/uploads/ai-voice
-  seed-demo-data: true
-  api-token-enabled: false
-  api-token: ''
-  demo-login-password: '123456'
-  service-username: service
-  service-password: '123456'
-  service-family-id: family_001
+  seed-demo-data: ${KINECHO_SEED_DEMO_DATA:false}
+  api-token-enabled: ${KINECHO_API_TOKEN_ENABLED:false}
+  api-token: ${KINECHO_API_TOKEN:}
+  demo-login-password: ${KINECHO_DEMO_LOGIN_PASSWORD:}
+  service-username: ${KINECHO_SERVICE_USERNAME:service}
+  service-password: ${KINECHO_SERVICE_PASSWORD:123456}
+  service-family-id: ${KINECHO_SERVICE_FAMILY_ID:family_001}
   service-display-name: 服务专员
-  admin-username: admin
-  admin-password: '123456'
+  admin-username: ${KINECHO_ADMIN_USERNAME:admin}
+  admin-password: ${KINECHO_ADMIN_PASSWORD:123456}
+  wechat-app-id: ${KINECHO_WECHAT_APP_ID:}
+  wechat-app-secret: ${KINECHO_WECHAT_APP_SECRET:}
+  service-wechat-openid: ${KINECHO_SERVICE_WECHAT_OPENID:}
   admin-display-name: 平台管理员
   ai-chat-provider: bailian
   ai-audio-retention-count: 32
@@ -51,14 +54,14 @@ kinecho:
   bailian-asr-language-hints:
     - zh
     - en
-  bailian-asr-file-base-url: ''
+  bailian-asr-file-base-url: ${KINECHO_BAILIAN_ASR_FILE_BASE_URL:}
   bailian-asr-timeout-seconds: 90
   bailian-asr-poll-interval-millis: 800
 
-  bailian-chat-model: qwen-turbo
-  bailian-chat-temperature: 0.7
-  bailian-chat-max-tokens: 240
-  bailian-chat-timeout-seconds: 10
+  bailian-chat-model: ${KINECHO_BAILIAN_CHAT_MODEL:qwen-turbo}
+  bailian-chat-temperature: ${KINECHO_BAILIAN_CHAT_TEMPERATURE:0.7}
+  bailian-chat-max-tokens: ${KINECHO_BAILIAN_CHAT_MAX_TOKENS:240}
+  bailian-chat-timeout-seconds: ${KINECHO_BAILIAN_CHAT_TIMEOUT_SECONDS:10}
 
   bailian-tts-model: qwen3-tts-flash
   bailian-tts-voice: Serena

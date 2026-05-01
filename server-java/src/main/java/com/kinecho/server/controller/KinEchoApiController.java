@@ -34,6 +34,11 @@ public class KinEchoApiController {
         return service.login(data);
     }
 
+    @PostMapping("/auth/wechat-login")
+    public ResponseEntity<Map<String, Object>> wechatLogin(@RequestBody Map<String, Object> data) {
+        return service.wechatLogin(data);
+    }
+
     @GetMapping("/family/schedules")
     public ResponseEntity<Map<String, Object>> getFamilySchedules(@RequestParam(required = false) String family_id) {
         return service.getFamilySchedules(family_id);
@@ -163,6 +168,12 @@ public class KinEchoApiController {
         return service.getLatestMood(params);
     }
 
+    @GetMapping("/elderly/profile-stats")
+    public ResponseEntity<Map<String, Object>> getElderlyProfileStats(@RequestParam(required = false) String family_id,
+                                                                      @RequestParam(required = false) Long elderly_id) {
+        return service.getElderlyProfileStats(family_id, elderly_id);
+    }
+
     @GetMapping("/elderly/weather")
     public ResponseEntity<Map<String, Object>> getWeather(@RequestParam Map<String, String> params) {
         return service.getWeather(params);
@@ -187,6 +198,31 @@ public class KinEchoApiController {
     public ResponseEntity<Map<String, Object>> getCareInsight(@RequestParam(required = false) String family_id,
                                                               @RequestParam(required = false) Long elderly_id) {
         return service.getCareInsight(family_id, elderly_id);
+    }
+
+    @PostMapping(value = "/elderly/mental-screenings/live", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, Object>> createLiveMentalScreening(@RequestPart("frame") MultipartFile frame,
+                                                                         @RequestParam String family_id,
+                                                                         @RequestParam(required = false) Long elderly_id,
+                                                                         @RequestParam(defaultValue = "1") int frame_count,
+                                                                         @RequestParam(defaultValue = "0") int completed_actions,
+                                                                         @RequestParam(defaultValue = "0") int liveness_score,
+                                                                         @RequestParam(defaultValue = "0") int quality_score,
+                                                                         @RequestParam(defaultValue = "mental-screening-live-v1") String consent_version) {
+        return service.createLiveMentalScreening(frame, family_id, elderly_id, frame_count, completed_actions, liveness_score, quality_score, consent_version);
+    }
+
+    @GetMapping("/mental-screenings/latest")
+    public ResponseEntity<Map<String, Object>> getLatestMentalScreening(@RequestParam(required = false) String family_id,
+                                                                        @RequestParam(required = false) Long elderly_id) {
+        return service.getLatestMentalScreening(family_id, elderly_id);
+    }
+
+    @GetMapping("/mental-screenings")
+    public ResponseEntity<Map<String, Object>> getMentalScreenings(@RequestParam(required = false) String family_id,
+                                                                   @RequestParam(required = false) Long elderly_id,
+                                                                   @RequestParam(defaultValue = "10") int limit) {
+        return service.getMentalScreenings(family_id, elderly_id, limit);
     }
 
     @GetMapping("/family/interactions")
@@ -340,6 +376,16 @@ public class KinEchoApiController {
     @GetMapping("/counselors")
     public ResponseEntity<Map<String, Object>> getCounselors() {
         return service.getCounselors();
+    }
+
+    @GetMapping("/psychology/resources")
+    public ResponseEntity<Map<String, Object>> getPsychologyResources() {
+        return service.getPsychologyResources();
+    }
+
+    @GetMapping("/psychology/questions/{questionId}")
+    public ResponseEntity<Map<String, Object>> getPsychologyQuestion(@PathVariable long questionId) {
+        return service.getPsychologyQuestion(questionId);
     }
 
     @GetMapping("/consultations")

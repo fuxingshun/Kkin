@@ -9,23 +9,30 @@
     "smoke:checklist": "node scripts/smoke-checklist.js"
   },
   "dependencies": {
-    "@tarojs/components": "^4.1.11",
-    "@tarojs/react": "^4.1.11",
-    "@tarojs/runtime": "^4.1.11",
-    "@tarojs/taro": "^4.1.11",
+    "@tarojs/components": "4.1.11",
+    "@tarojs/react": "4.1.11",
+    "@tarojs/runtime": "4.1.11",
+    "@tarojs/taro": "4.1.11",
+    "kinecho": "file:..",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@babel/preset-react": "^7.28.5",
     "@babel/preset-typescript": "^7.28.5",
-    "@tarojs/cli": "^4.1.11",
-    "@tarojs/plugin-framework-react": "^4.1.11",
-    "@tarojs/plugin-platform-weapp": "^4.1.11",
-    "@tarojs/webpack5-runner": "^4.1.11",
+    "@tarojs/cli": "4.1.11",
+    "@tarojs/plugin-framework-react": "4.1.11",
+    "@tarojs/plugin-platform-weapp": "4.1.11",
+    "@tarojs/webpack5-runner": "4.1.11",
     "@types/node": "^22.15.3",
     "@types/react": "^18.3.23",
-    "babel-preset-taro": "^4.1.11",
+    "babel-preset-taro": "4.1.11",
     "typescript": "^5.8.3"
+  },
+  "overrides": {
+    "esbuild": "0.27.7",
+    "swiper": "12.1.4",
+    "webpack": "5.105.0",
+    "webpack-dev-server": "5.2.2"
   }
 }

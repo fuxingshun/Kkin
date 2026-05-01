@@ -68,7 +68,7 @@ export default function ElderlyHomePage() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<FamilyUser[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
-  const [message, setMessage] = useState<ElderlyMessage | null>(null);
+  const [messages, setMessages] = useState<ElderlyMessage[]>([]);
   const [mediaList, setMediaList] = useState<RecommendedMedia[]>([]);
   const [careInsight, setCareInsight] = useState<CareInsight | null>(null);
   const [moodLabel, setMoodLabel] = useState('未记录');
@@ -87,7 +87,7 @@ export default function ElderlyHomePage() {
 
       setUsers(nextUsers);
       setSchedules(todaySchedules);
-      setMessage(pendingMessages[0] || null);
+      setMessages(pendingMessages);
       setMediaList(recommendedMedia);
       setCareInsight(nextInsight);
       setMoodLabel(latestMood ? moodLabelMap[latestMood.mood_type] : '未记录');
@@ -117,6 +117,7 @@ export default function ElderlyHomePage() {
     return mediaList[getDailyRandomIndex(mediaList.length, elderlyId)] || mediaList[0] || null;
   }, [elderlyId, mediaList]);
   const greetingName = users.length ? getGreetingName(users) : elderName || '王先生';
+  const pendingMessageCount = messages.length;
 
   async function completeSchedule(scheduleId?: number) {
     if (!scheduleId) return;
@@ -130,10 +131,10 @@ export default function ElderlyHomePage() {
     }
   }
 
-  async function handleReadMessage() {
-    if (!message?.id) return;
+  async function handleReadMessage(messageId?: number) {
+    if (!messageId) return;
     try {
-      await markAsPlayed(message.id);
+      await markAsPlayed(messageId);
       Taro.showToast({ title: '已收到留言', icon: 'success' });
       await loadData();
     } catch (error) {
@@ -174,7 +175,7 @@ export default function ElderlyHomePage() {
           </Text>
           <Text className='ef-card-meta'>
             任务完成 {careInsight?.metrics?.completion_rate ?? 0}%
-            {careInsight?.metrics?.open_alerts ? ` · ${careInsight.metrics.open_alerts} 条待处理` : ' · 暂无待处理'}
+            {pendingMessageCount ? ` · ${pendingMessageCount} 条待处理留言` : ' · 暂无待处理留言'}
           </Text>
         </View>
       </View>
@@ -224,8 +225,22 @@ export default function ElderlyHomePage() {
         </View>
         <View className='ef-greeting-card__body'>
           <Text className='ef-card-title'>家属关怀</Text>
-          <Text className='ef-card-text'>{message ? `${message.sender_relation}：${message.content}` : '家属发送的留言和关怀信息将在此显示'}</Text>
-          {message ? <Text className='ef-warm-link' onClick={handleReadMessage}>我已收到 〉</Text> : null}
+          <View className='ef-family-messages'>
+            {messages.length ? (
+              messages.map((item) => (
+                <View className='ef-family-message' key={item.id || item.created_at || item.content}>
+                  <Text className='ef-card-text ef-family-message__content'>
+                    {item.sender_relation || item.sender_name || '家人'}：{item.content}
+                  </Text>
+                  <Text className='ef-warm-link ef-family-message__action' onClick={() => handleReadMessage(item.id)}>
+                    我已收到 〉
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text className='ef-card-text'>家属发送的留言和关怀信息将在此显示</Text>
+            )}
+          </View>
         </View>
       </View>
 
@@ -258,11 +273,11 @@ export default function ElderlyHomePage() {
             </View>
             <Text>联系家人</Text>
           </View>
-          <View className='ef-quick-card' onClick={() => Taro.redirectTo({ url: '/pages/elderly/companion/index' })}>
-            <View className='ef-round-icon ef-round-icon--green'>
-              <Text>聊</Text>
+          <View className='ef-quick-card' onClick={() => Taro.navigateTo({ url: '/pages/elderly/mental-screening/index' })}>
+            <View className='ef-round-icon ef-round-icon--warm'>
+              <Text>心</Text>
             </View>
-            <Text>AI陪伴</Text>
+            <Text>心理检测</Text>
           </View>
         </View>
       </View>

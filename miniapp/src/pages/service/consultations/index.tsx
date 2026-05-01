@@ -1,81 +1,112 @@
-import { useMemo, useState } from 'react';
-import { Input, Text, View } from '@tarojs/components';
+import { useCallback, useMemo, useState } from 'react';
+import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
+import { Button, Input, Text, View } from '@tarojs/components';
+import { EmptyState } from '@/components/EmptyState';
 import { ServiceTabBar } from '@/components/ServiceTabBar';
+import {
+  advanceFollowupStatus,
+  createServiceRecord,
+  getServiceFollowups,
+  type ServiceFollowup,
+} from '@/services/service';
+import { formatDateTimeText } from '@/utils/format';
 
-const tabs = ['全部', '待进行', '已完成', '已取消'];
-
-const consultations = [
-  {
-    id: '1',
-    name: '张翠花',
-    age: 72,
-    time: '今天 09:00',
-    type: '视频咨询',
-    icon: '▣',
-    status: 'scheduled',
-    statusLabel: '待进行',
-    topic: '焦虑情绪疏导',
-    notes: '近期睡眠质量下降，建议进行放松训练和情绪记录。',
-  },
-  {
-    id: '2',
-    name: '李秀英',
-    age: 68,
-    time: '今天 14:30',
-    type: '电话咨询',
-    icon: '☎',
-    status: 'scheduled',
-    statusLabel: '待进行',
-    topic: '家庭关系沟通',
-  },
-  {
-    id: '3',
-    name: '王大爷',
-    age: 75,
-    time: '今天 16:00',
-    type: '视频咨询',
-    icon: '▣',
-    status: 'scheduled',
-    statusLabel: '待进行',
-    topic: '孤独感陪伴',
-  },
-  {
-    id: '4',
-    name: '赵奶奶',
-    age: 70,
-    time: '昨天 10:00',
-    type: '视频咨询',
-    icon: '▣',
-    status: 'completed',
-    statusLabel: '已完成',
-    topic: '情绪低落支持',
-    notes: '完成 45 分钟咨询，老人状态有所缓解，需一周后复访。',
-  },
-  {
-    id: '5',
-    name: '孙阿姨',
-    age: 66,
-    time: '昨天 15:30',
-    type: '电话咨询',
-    icon: '☎',
-    status: 'cancelled',
-    statusLabel: '已取消',
-    topic: '睡眠问题咨询',
-  },
+const tabs: Array<{ label: string; status?: ServiceFollowup['status'] }> = [
+  { label: '全部' },
+  { label: '待进行', status: 'scheduled' },
+  { label: '进行中', status: 'in_progress' },
+  { label: '已完成', status: 'completed' },
 ];
+
+function getStatusLabel(status: ServiceFollowup['status']) {
+  if (status === 'scheduled') return '待进行';
+  if (status === 'in_progress') return '进行中';
+  if (status === 'completed') return '已完成';
+  if (status === 'cancelled') return '已取消';
+  return status;
+}
 
 export default function ServiceConsultationsPage() {
   const [activeTab, setActiveTab] = useState(0);
   const [keyword, setKeyword] = useState('');
+  const [consultations, setConsultations] = useState<ServiceFollowup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setConsultations(await getServiceFollowups(undefined, 50));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '咨询记录加载失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    } finally {
+      setLoading(false);
+      Taro.stopPullDownRefresh();
+    }
+  }, []);
+
+  useDidShow(() => {
+    void loadData();
+  });
+
+  usePullDownRefresh(() => {
+    void loadData();
+  });
 
   const filteredList = useMemo(() => {
     const value = keyword.trim();
+    const selectedStatus = tabs[activeTab]?.status;
     return consultations.filter((item) => {
-      const tabMatched = activeTab === 0 || item.statusLabel === tabs[activeTab];
-      const keywordMatched = !value || item.name.includes(value) || item.topic.includes(value);
+      const tabMatched = !selectedStatus || item.status === selectedStatus;
+      const keywordMatched = !value || item.elderlyName.includes(value) || item.note?.includes(value);
       return tabMatched && keywordMatched;
     });
-  }, [activeTab, keyword]);
+  }, [activeTab, consultations, keyword]);
+
+  async function progressConsultation(item: ServiceFollowup) {
+    if (item.status === 'completed') {
+      if (item.elderlyId) {
+        Taro.navigateTo({ url: `/pages/service/case-detail/index?elderlyId=${item.elderlyId}` });
+      }
+      return;
+    }
+
+    try {
+      setBusyId(item.id);
+      if (item.status === 'in_progress' && item.elderlyId) {
+        type EditableModalResult = Awaited<ReturnType<typeof Taro.showModal>> & { content?: string };
+        type EditableModalOptions = Parameters<typeof Taro.showModal>[0] & {
+          editable: boolean;
+          placeholderText: string;
+        };
+
+        const result = (await Taro.showModal({
+          title: '完成咨询',
+          editable: true,
+          placeholderText: '填写本次咨询结论、风险判断或后续建议',
+        } as EditableModalOptions)) as EditableModalResult;
+        const content = typeof result.content === 'string' ? result.content.trim() : '';
+
+        if (!result.confirm || !content) {
+          return;
+        }
+
+        await createServiceRecord({
+          elderlyId: item.elderlyId,
+          content: `心理咨询记录：${content}`,
+        });
+      }
+      await advanceFollowupStatus(item);
+      Taro.showToast({ title: item.status === 'scheduled' ? '已开始' : '已完成', icon: 'success' });
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '咨询状态更新失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <View className='service-page service-page--figma sc-page'>
@@ -88,75 +119,84 @@ export default function ServiceConsultationsPage() {
             placeholder='搜索咨询记录'
             onInput={(event) => setKeyword(event.detail.value)}
           />
-          <Text className='sc-filter'>筛选</Text>
+          <Text className='sc-filter' onClick={() => Taro.redirectTo({ url: '/pages/service/followup/index' })}>随访</Text>
         </View>
       </View>
 
       <View className='sc-tabs'>
         {tabs.map((tab, index) => (
           <Text
-            key={tab}
+            key={tab.label}
             className={`sc-tab ${activeTab === index ? 'sc-tab--active' : ''}`}
             onClick={() => setActiveTab(index)}
           >
-            {tab}
+            {tab.label}
           </Text>
         ))}
       </View>
 
       <View className='sc-list'>
-        {filteredList.map((item) => (
-          <View className='sc-consult-card' key={item.id}>
-            <View className='sc-consult-card__head'>
-              <View className='sc-consult-icon'>
-                <Text>{item.icon}</Text>
+        {filteredList.length ? (
+          filteredList.map((item) => (
+            <View className='sc-consult-card' key={item.id}>
+              <View className='sc-consult-card__head'>
+                <View className='sc-consult-icon'>
+                  <Text>{item.consultationType.includes('视频') ? '视' : '电'}</Text>
+                </View>
+                <View className='sc-consult-card__identity'>
+                  <Text className='sc-consult-card__name'>{item.elderlyName}</Text>
+                  <Text className='sc-consult-card__meta'>{formatDateTimeText(item.scheduledTime)}</Text>
+                </View>
+                <Text className={`sc-status sc-status--${item.status}`}>{getStatusLabel(item.status)}</Text>
               </View>
-              <View className='sc-consult-card__identity'>
-                <Text className='sc-consult-card__name'>{item.name}</Text>
-                <Text className='sc-consult-card__meta'>{item.age}岁 · {item.time}</Text>
+              <View className='sc-topic-box'>
+                <Text className='sc-topic-box__label'>咨询类型</Text>
+                <Text className='sc-topic-box__text'>{item.consultationType}</Text>
               </View>
-              <Text className={`sc-status sc-status--${item.status}`}>{item.statusLabel}</Text>
+              {item.note ? (
+                <View className='sc-note-box'>
+                  <Text>{item.note}</Text>
+                </View>
+              ) : null}
+              <View className='sc-consult-card__foot'>
+                <Text className='sc-consult-type'>{getStatusLabel(item.status)}</Text>
+                <View className='sc-action-row'>
+                  <Button
+                    className='sc-action sc-action--ghost'
+                    onClick={() => Taro.redirectTo({ url: '/pages/service/schedule/index' })}
+                  >
+                    日程
+                  </Button>
+                  <Button
+                    className='sc-action sc-action--primary'
+                    loading={busyId === item.id}
+                    onClick={() => void progressConsultation(item)}
+                  >
+                    {item.status === 'scheduled' ? '进入咨询' : item.status === 'in_progress' ? '完成咨询' : '查看详情'}
+                  </Button>
+                </View>
+              </View>
             </View>
-            <View className='sc-topic-box'>
-              <Text className='sc-topic-box__label'>咨询主题</Text>
-              <Text className='sc-topic-box__text'>{item.topic}</Text>
-            </View>
-            {item.notes ? (
-              <View className='sc-note-box'>
-                <Text>{item.notes}</Text>
-              </View>
-            ) : null}
-            <View className='sc-consult-card__foot'>
-              <Text className='sc-consult-type'>{item.type}</Text>
-              <View className='sc-action-row'>
-                {item.status === 'scheduled' ? (
-                  <>
-                    <Text className='sc-action sc-action--ghost'>改期</Text>
-                    <Text className='sc-action sc-action--primary'>进入咨询室</Text>
-                  </>
-                ) : (
-                  <Text className='sc-action sc-action--ghost'>查看详情</Text>
-                )}
-              </View>
-            </View>
-          </View>
-        ))}
+          ))
+        ) : (
+          <EmptyState title={loading ? '正在加载咨询' : '暂无咨询记录'} hint='家属端和服务端创建的咨询会同步到这里。' />
+        )}
       </View>
 
       <View className='sc-month-card'>
-        <Text className='sc-month-card__title'>本月咨询统计</Text>
+        <Text className='sc-month-card__title'>咨询统计</Text>
         <View className='sc-month-grid'>
           <View>
-            <Text className='sc-month-value'>28</Text>
-            <Text className='sc-month-label'>咨询次数</Text>
+            <Text className='sc-month-value'>{consultations.length}</Text>
+            <Text className='sc-month-label'>咨询总数</Text>
           </View>
           <View>
-            <Text className='sc-month-value'>56h</Text>
-            <Text className='sc-month-label'>服务时长</Text>
+            <Text className='sc-month-value'>{consultations.filter((item) => item.status !== 'completed').length}</Text>
+            <Text className='sc-month-label'>待跟进</Text>
           </View>
           <View>
-            <Text className='sc-month-value'>4.9</Text>
-            <Text className='sc-month-label'>平均评分</Text>
+            <Text className='sc-month-value'>{consultations.filter((item) => item.status === 'completed').length}</Text>
+            <Text className='sc-month-label'>已完成</Text>
           </View>
         </View>
       </View>
