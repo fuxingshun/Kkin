@@ -22,6 +22,7 @@ import {
 } from '@/services/family';
 import { countTodayMemberMessages, getInteractionHistory, sanitizeInteractionContent } from '@/services/interaction';
 import { getLatestMentalScreening, type MentalScreening } from '@/services/mentalHealth';
+import { getFamilySession } from '@/utils/familySession';
 import { formatDateTimeText, formatRelativeTime } from '@/utils/format';
 import { useNavigationMetrics } from '@/utils/navigation';
 
@@ -123,6 +124,12 @@ export default function FamilyDashboardPage() {
   const [latestScreening, setLatestScreening] = useState<MentalScreening | null>(null);
 
   const loadData = useCallback(async () => {
+    const session = getFamilySession();
+    if (!session.elderlyId) {
+      void Taro.redirectTo({ url: '/pages/family/bind-elderly/index?from=login' });
+      return;
+    }
+
     try {
       setLoading(true);
 

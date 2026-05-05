@@ -6,6 +6,8 @@ export interface ServiceSession {
   username?: string;
   displayName?: string;
   familyId: string;
+  wechatOpenid?: string;
+  certificationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
 }
 
 const SERVICE_SESSION_KEY = 'kin-service-session';
@@ -18,6 +20,13 @@ function normalizeFamilyId(value: unknown) {
   return typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_FAMILY_ID;
 }
 
+function normalizeCertificationStatus(value: unknown): ServiceSession['certificationStatus'] {
+  if (value === 'pending' || value === 'approved' || value === 'rejected' || value === 'none') {
+    return value;
+  }
+  return undefined;
+}
+
 export function getServiceSession(): ServiceSession {
   const stored = Taro.getStorageSync(SERVICE_SESSION_KEY) as Partial<ServiceSession> | undefined;
   return {
@@ -25,6 +34,8 @@ export function getServiceSession(): ServiceSession {
     username: normalizeText(stored?.username),
     displayName: normalizeText(stored?.displayName) || '服务专员',
     familyId: normalizeFamilyId(stored?.familyId),
+    wechatOpenid: normalizeText(stored?.wechatOpenid),
+    certificationStatus: normalizeCertificationStatus(stored?.certificationStatus),
   };
 }
 
@@ -35,6 +46,8 @@ export function saveServiceSession(session: Partial<ServiceSession>) {
     username: normalizeText(session.username ?? current.username),
     displayName: normalizeText(session.displayName ?? current.displayName) || '服务专员',
     familyId: normalizeFamilyId(session.familyId ?? current.familyId),
+    wechatOpenid: normalizeText(session.wechatOpenid ?? current.wechatOpenid),
+    certificationStatus: normalizeCertificationStatus(session.certificationStatus ?? current.certificationStatus),
   };
   Taro.setStorageSync(SERVICE_SESSION_KEY, next);
   return next;

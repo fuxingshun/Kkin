@@ -4,6 +4,7 @@ import { Button, Input, ScrollView, Text, View } from '@tarojs/components';
 import { chatWithAi, voiceChatWithAi } from '@/services/aiCompanion';
 import { getAiInteractions, type AiInteraction } from '@/services/elderly';
 import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
+import { getElderlyChatUsername, getElderlySession } from '@/utils/session';
 
 type RecorderStopResult = {
   tempFilePath?: string;
@@ -13,29 +14,15 @@ type RecorderStopResult = {
 
 const quickTopics = ['我有点难过', '想聊聊天', '想联系家人', '讲讲过去的事', '想听安慰', '睡不着觉'];
 
-const defaultMessages: AiInteraction[] = [
-  {
+function createWelcomeMessage(elderName?: string): AiInteraction {
+  return {
     id: 1,
     username: '小心',
     type: 'ai',
-    content: '张阿姨，您好！我是您的AI陪伴助手小心。今天感觉怎么样？',
-    createtime: Date.now() - 8 * 60 * 1000,
-  },
-  {
-    id: 2,
-    username: 'User',
-    type: 'member',
-    content: '今天天气不错，心情还可以。',
-    createtime: Date.now() - 6 * 60 * 1000,
-  },
-  {
-    id: 3,
-    username: '小心',
-    type: 'ai',
-    content: '那真是太好了！天气好的时候，可以到阳台晒晒太阳，对身体很好。您今天有什么想聊的吗？',
-    createtime: Date.now() - 6 * 60 * 1000,
-  },
-];
+    content: `${elderName || '您好'}，我是小心。今天想聊什么都可以，我在这里陪您。`,
+    createtime: Date.now(),
+  };
+}
 
 function formatMessageTime(value?: number | string) {
   if (!value) {
@@ -83,6 +70,8 @@ function sortMessagesByTime(items: AiInteraction[]) {
 
 export default function ElderlyCompanionPage() {
   const preferenceClassName = useElderlyPreferenceClassNames();
+  const elderlySession = getElderlySession();
+  const chatUsername = getElderlyChatUsername(elderlySession);
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [messages, setMessages] = useState<AiInteraction[]>([]);
@@ -169,21 +158,21 @@ export default function ElderlyCompanionPage() {
 
   const loadHistory = useCallback(async () => {
     try {
-      const history = await getAiInteractions(30);
+      const history = await getAiInteractions(30, chatUsername);
       setMessages(sortMessagesByTime(history));
     } catch (error) {
       const message = error instanceof Error ? error.message : '对话加载失败';
       Taro.showToast({ title: message, icon: 'none' });
     }
-  }, []);
+  }, [chatUsername]);
 
   useDidShow(() => {
     void loadHistory();
   });
 
   const visibleMessages = useMemo(() => {
-    return messages.length ? messages : defaultMessages;
-  }, [messages]);
+    return messages.length ? messages : [createWelcomeMessage(elderlySession.elderName)];
+  }, [elderlySession.elderName, messages]);
 
   const latestMessage = visibleMessages[visibleMessages.length - 1];
   const scrollToLatestMessage = useCallback(() => {
@@ -223,7 +212,7 @@ export default function ElderlyCompanionPage() {
         createtime: Date.now(),
       });
 
-      const result = await chatWithAi(content);
+      const result = await chatWithAi(content, chatUsername);
       if (result.reply) {
         appendMessage({
           id: Date.now() + 1,
@@ -253,7 +242,7 @@ export default function ElderlyCompanionPage() {
       sendingRef.current = false;
       setSending(false);
     }
-  }, [appendMessage, playAudio]);
+  }, [appendMessage, chatUsername, playAudio]);
 
   const sendVoiceFile = useCallback(async (filePath: string, duration = 0) => {
     if (!filePath) {
@@ -275,7 +264,7 @@ export default function ElderlyCompanionPage() {
       setSending(true);
       Taro.showLoading({ title: '正在识别' });
 
-      const result = await voiceChatWithAi(filePath);
+      const result = await voiceChatWithAi(filePath, chatUsername);
       Taro.hideLoading();
 
       if (result.transcript) {
@@ -328,7 +317,7 @@ export default function ElderlyCompanionPage() {
       sendingRef.current = false;
       setSending(false);
     }
-  }, [appendMessage, playAudio]);
+  }, [appendMessage, chatUsername, playAudio]);
 
   useEffect(() => {
     const recorderManager = Taro.getRecorderManager();

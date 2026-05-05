@@ -16,6 +16,7 @@ import {
   type ServiceTask,
 } from '@/services/service';
 import { formatDateTimeText, formatRelativeTime } from '@/utils/format';
+import { getServiceSession } from '@/utils/serviceSession';
 
 function getPriorityLabel(priority: ServiceTask['priority']) {
   if (priority === 'high') return '高优先级';
@@ -49,6 +50,20 @@ export default function ServiceWorkspacePage() {
   const [latestScreening, setLatestScreening] = useState<MentalScreening | null>(null);
 
   const loadData = useCallback(async () => {
+    const session = getServiceSession();
+    if (session.certificationStatus === 'pending') {
+      void Taro.redirectTo({ url: '/pages/service/review-pending/index' });
+      return;
+    }
+    if (session.certificationStatus && session.certificationStatus !== 'approved') {
+      void Taro.redirectTo({ url: '/pages/service/no-access/index' });
+      return;
+    }
+    if (!session.wechatOpenid && !session.username) {
+      void Taro.redirectTo({ url: '/pages/service/no-access/index' });
+      return;
+    }
+
     try {
       setLoading(true);
       const [nextOverview, nextTasks, nextFollowups, nextScreening] = await Promise.all([

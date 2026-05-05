@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Image, Input, Text, View } from '@tarojs/components';
+import { AppIcon, type AppIconName } from '@/components/AppIcon';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
 import { getCounselors, type Counselor } from '@/services/elderly';
 import {
@@ -13,6 +14,16 @@ import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 
 function includesKeyword(value: string, keyword: string) {
   return !keyword || value.includes(keyword);
+}
+
+function getCategoryIcon(category: PsychologyCategory): AppIconName {
+  const value = `${category.icon || ''}${category.name || ''}`;
+  if (value.includes('睡')) return 'clock';
+  if (value.includes('家庭') || value.includes('关系') || value.includes('沟通')) return 'users';
+  if (value.includes('健康') || value.includes('焦虑') || value.includes('慢病')) return 'shield';
+  if (value.includes('记忆') || value.includes('认知')) return 'book';
+  if (value.includes('哀') || value.includes('情绪') || value.includes('心')) return 'heart';
+  return 'message';
 }
 
 export default function ElderlyPsychologicalConsultingPage() {
@@ -84,7 +95,7 @@ export default function ElderlyPsychologicalConsultingPage() {
       <View className='pc-search-head'>
         <Text className='pc-title'>心理咨询</Text>
         <View className='pc-search-box'>
-          <Text className='pc-search-icon'>搜</Text>
+          <AppIcon name='search' className='pc-search-icon' />
           <Input
             className='pc-search-input'
             value={keyword}
@@ -99,26 +110,26 @@ export default function ElderlyPsychologicalConsultingPage() {
       <View className='pc-section pc-section--match'>
         <View className='pc-match-card' onClick={() => openCounselors('online')}>
           <View className='pc-match-icon'>
-            <Text>咨</Text>
+            <AppIcon name='message' />
           </View>
           <View className='pc-match-body'>
             <Text className='pc-match-title'>智能匹配咨询师</Text>
             <Text className='pc-match-desc'>当前 {availableCount} 位咨询师可预约，数据来自数据库。</Text>
           </View>
-          <Text className='pc-chevron'>›</Text>
+          <AppIcon name='chevron-right' className='pc-chevron' />
         </View>
       </View>
 
       <View className='pc-section pc-section--compact'>
         <View className='pc-counselor-link' onClick={() => openCounselors('all')}>
           <View className='pc-soft-icon'>
-            <Text>人</Text>
+            <AppIcon name='users' />
           </View>
           <View className='pc-link-body'>
             <Text className='pc-link-title'>查看全部咨询师</Text>
             <Text className='pc-link-desc'>从后端咨询师库读取并按可预约状态排序</Text>
           </View>
-          <Text className='pc-chevron pc-chevron--gray'>›</Text>
+          <AppIcon name='chevron-right' className='pc-chevron pc-chevron--gray' />
         </View>
       </View>
 
@@ -132,7 +143,9 @@ export default function ElderlyPsychologicalConsultingPage() {
                 className={`pc-category ${category.class_name || ''} ${selectedCategory === category.id ? 'pc-category--selected' : ''}`}
                 onClick={() => chooseCategory(category)}
               >
-                <Text className='pc-category-icon'>{category.icon || '·'}</Text>
+                <View className='pc-category-icon'>
+                  <AppIcon name={getCategoryIcon(category)} />
+                </View>
                 <Text className='pc-category-name'>{category.name}</Text>
               </View>
             ))}
@@ -143,7 +156,7 @@ export default function ElderlyPsychologicalConsultingPage() {
       <View className='pc-section'>
         <View className='pc-section-head'>
           <View className='pc-title-row'>
-            <Text className='pc-title-icon'>学</Text>
+            <AppIcon name='book' className='pc-title-icon' />
             <Text className='pc-section-title'>心理百科</Text>
           </View>
           <Text className='pc-more' onClick={() => openCounselors('experienced')}>找专家</Text>
@@ -155,7 +168,7 @@ export default function ElderlyPsychologicalConsultingPage() {
                 {article.poster_url ? <Image className='pc-article-cover-image' src={article.poster_url} mode='widthFix' /> : null}
                 <View className='pc-article-cover-shade' />
                 <View className='pc-article-play-badge'>
-                  <Text>▶</Text>
+                  <AppIcon name='play' />
                 </View>
               </View>
               <View className='pc-article-body'>
@@ -180,13 +193,13 @@ export default function ElderlyPsychologicalConsultingPage() {
             {filteredQuestions.map((item) => (
               <View className='pc-question-row' key={item.id} onClick={() => openQuestionDetail(item.id)}>
                 <View className='pc-question-main'>
-                  <Text className='pc-question-icon'>问</Text>
+                  <AppIcon name='help' className='pc-question-icon' />
                   <View className='pc-question-body'>
                     <Text className='pc-question-text'>{item.question}</Text>
                     {item.reply_count ? <Text className='pc-question-meta'>{item.reply_count} 条回答与评论</Text> : null}
                   </View>
                 </View>
-                <Text className='pc-chevron pc-chevron--gray'>›</Text>
+                <AppIcon name='chevron-right' className='pc-chevron pc-chevron--gray' />
               </View>
             ))}
           </View>

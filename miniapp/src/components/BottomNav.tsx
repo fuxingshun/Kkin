@@ -1,5 +1,6 @@
 import Taro from '@tarojs/taro';
 import { Text, View } from '@tarojs/components';
+import { AppIcon, type AppIconName } from '@/components/AppIcon';
 
 type NavKey = 'dashboard' | 'messages' | 'care' | 'alerts' | 'profile';
 
@@ -7,12 +8,12 @@ interface BottomNavProps {
   active?: NavKey;
 }
 
-const items: Array<{ key: NavKey; label: string; icon: string; url: string }> = [
-  { key: 'dashboard', label: '看板', icon: '看', url: '/pages/family/dashboard/index' },
-  { key: 'messages', label: '留言', icon: '留', url: '/pages/family/messages/index' },
-  { key: 'care', label: '护理', icon: '护', url: '/pages/family/care/index' },
-  { key: 'alerts', label: '通知', icon: '通', url: '/pages/family/alerts/index' },
-  { key: 'profile', label: '我的', icon: '我', url: '/pages/family/profile/index' },
+const items: Array<{ key: NavKey; label: string; icon: AppIconName; url: string }> = [
+  { key: 'dashboard', label: '看板', icon: 'dashboard', url: '/pages/family/dashboard/index' },
+  { key: 'messages', label: '留言', icon: 'message', url: '/pages/family/messages/index' },
+  { key: 'care', label: '护理', icon: 'shield', url: '/pages/family/care/index' },
+  { key: 'alerts', label: '通知', icon: 'bell', url: '/pages/family/alerts/index' },
+  { key: 'profile', label: '我的', icon: 'user', url: '/pages/family/profile/index' },
 ];
 
 export function BottomNav({ active }: BottomNavProps) {
@@ -28,7 +29,7 @@ export function BottomNav({ active }: BottomNavProps) {
             }
           }}
         >
-          <Text className='family-tabbar__icon'>{item.icon}</Text>
+          <AppIcon name={item.icon} className='family-tabbar__icon' />
           <Text className='family-tabbar__label'>{item.label}</Text>
         </View>
       ))}

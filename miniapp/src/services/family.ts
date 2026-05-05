@@ -417,6 +417,7 @@ export async function bindFamilyByCode(payload: {
   binding_code: string;
   name: string;
   phone?: string;
+  wechat_openid?: string;
 }) {
   return request<FamilyBindingResult>('/users/bind-by-code', {
     method: 'POST',
@@ -424,6 +425,7 @@ export async function bindFamilyByCode(payload: {
       binding_code: payload.binding_code.trim().toUpperCase(),
       name: payload.name.trim(),
       phone: payload.phone?.trim() || '',
+      wechat_openid: payload.wechat_openid?.trim() || '',
       operator: 'family',
     },
   });

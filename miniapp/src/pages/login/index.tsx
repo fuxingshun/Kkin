@@ -2,7 +2,12 @@ import { useState } from 'react';
 import Taro from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
 import { API_BASE_URL, API_BASE_URLS } from '@/config/runtime';
-import { loginWithWechat, type LoginResult, type WechatProfile } from '@/services/auth';
+import {
+  openWechatSession,
+  queryWechatIdentity,
+  type WechatIdentityStatus,
+  type WechatProfile,
+} from '@/services/auth';
 import { clearFamilySession, saveFamilySession } from '@/utils/familySession';
 import { clearServiceSession, saveServiceSession } from '@/utils/serviceSession';
 import { clearElderlySession, saveElderlySession } from '@/utils/session';
@@ -13,30 +18,26 @@ interface LoginRoleConfig {
   title: string;
   slogan: string;
   icon: string;
-  targetUrl: string;
   fallbackName: string;
 }
 
 const roleConfig: Record<RoleKey, LoginRoleConfig> = {
   elderly: {
     title: '老人陪伴端',
-    slogan: '温暖陪伴每一天',
+    slogan: '简单好用，温暖陪伴每一天',
     icon: '♡',
-    targetUrl: '/pages/elderly/home/index',
     fallbackName: '老人用户',
   },
   family: {
     title: '家属照护端',
     slogan: '远程守护，爱不缺席',
     icon: '人',
-    targetUrl: '/pages/family/dashboard/index',
     fallbackName: '家属用户',
   },
   service: {
     title: '服务协同端',
-    slogan: '专业服务，用心守护',
+    slogan: '仅限认证服务人员使用',
     icon: '▭',
-    targetUrl: '/pages/service/workspace/index',
     fallbackName: '服务专员',
   },
 };
@@ -45,37 +46,121 @@ function isRoleKey(value: unknown): value is RoleKey {
   return typeof value === 'string' && value in roleConfig;
 }
 
-function saveRoleSession(role: RoleKey, result: LoginResult, fallbackName: string) {
+function clearRoleSessions() {
   clearElderlySession();
   clearFamilySession();
   clearServiceSession();
+}
+
+function saveVerifiedSession(role: RoleKey, identity: WechatIdentityStatus, fallbackName: string) {
+  clearRoleSessions();
+
+  if (role === 'elderly') {
+    const elderly = identity.elderly;
+    saveElderlySession({
+      role: 'elderly',
+      familyId: elderly.family_id,
+      elderlyId: elderly.user_id,
+      elderName: elderly.name || elderly.display_name || fallbackName,
+      wechatOpenid: identity.openid,
+    });
+    return;
+  }
+
+  if (role === 'family') {
+    const family = identity.family;
+    saveFamilySession({
+      familyId: family.family_id,
+      familyUserId: family.family_user_id || family.user_id,
+      familyName: family.name || family.display_name || fallbackName,
+      elderlyId: family.elderly_id,
+      elderlyName: family.elderly_name,
+      wechatOpenid: identity.openid,
+    });
+    return;
+  }
+
+  const service = identity.service;
+  saveServiceSession({
+    username: service.username || 'wechat-service',
+    familyId: service.family_id,
+    displayName: service.display_name || fallbackName,
+    wechatOpenid: identity.openid,
+    certificationStatus: service.status,
+  });
+}
+
+function savePendingEntrance(role: RoleKey, identity: WechatIdentityStatus, fallbackName: string) {
+  clearRoleSessions();
 
   if (role === 'elderly') {
     saveElderlySession({
       role: 'elderly',
-      familyId: result.family_id,
-      elderlyId: result.elderly_id,
-      elderName: result.elderly_name || result.display_name || fallbackName,
+      familyId: `family_${identity.openid.slice(-10) || Date.now()}`,
+      elderName: fallbackName,
+      wechatOpenid: identity.openid,
     });
     return;
   }
 
   if (role === 'family') {
     saveFamilySession({
-      familyId: result.family_id,
-      familyUserId: result.family_user_id || result.user_id,
-      familyName: result.family_name || result.display_name || fallbackName,
-      elderlyId: result.elderly_id,
-      elderlyName: result.elderly_name,
+      familyName: identity.family.name || fallbackName,
+      wechatOpenid: identity.openid,
     });
     return;
   }
 
   saveServiceSession({
-    username: result.username || 'wechat-service',
-    familyId: result.family_id,
-    displayName: result.display_name || fallbackName,
+    displayName: identity.service.display_name || fallbackName,
+    wechatOpenid: identity.openid,
+    certificationStatus: identity.service.status,
   });
+}
+
+async function routeAfterIdentity(role: RoleKey, identity: WechatIdentityStatus, fallbackName: string) {
+  if (role === 'elderly') {
+    if (identity.elderly.has_role) {
+      saveVerifiedSession(role, identity, fallbackName);
+      await Taro.redirectTo({ url: '/pages/elderly/home/index' });
+      return;
+    }
+
+    savePendingEntrance(role, identity, fallbackName);
+    await Taro.redirectTo({ url: '/pages/elderly/basic-info/index?mode=create' });
+    return;
+  }
+
+  if (role === 'family') {
+    if (identity.family.has_role && identity.family.bound_elderly) {
+      saveVerifiedSession(role, identity, fallbackName);
+      await Taro.redirectTo({ url: '/pages/family/dashboard/index' });
+      return;
+    }
+
+    savePendingEntrance(role, identity, fallbackName);
+    await Taro.redirectTo({ url: '/pages/family/bind-elderly/index?from=login' });
+    return;
+  }
+
+  if (identity.service.certified && identity.service.status === 'approved') {
+    saveVerifiedSession(role, identity, fallbackName);
+    await Taro.redirectTo({ url: '/pages/service/workspace/index' });
+    return;
+  }
+
+  savePendingEntrance(role, identity, fallbackName);
+  if (identity.service.status === 'pending') {
+    await Taro.redirectTo({ url: '/pages/service/review-pending/index' });
+    return;
+  }
+
+  if (identity.service.status === 'rejected') {
+    await Taro.redirectTo({ url: '/pages/service/no-access/index?reason=rejected' });
+    return;
+  }
+
+  await Taro.redirectTo({ url: '/pages/service/certification/index' });
 }
 
 async function getWechatProfile(): Promise<WechatProfile | undefined> {
@@ -115,14 +200,14 @@ export default function LoginPage() {
     try {
       setSubmitting(true);
       const profile = await getWechatProfile();
-      Taro.showLoading({ title: '正在登录', mask: true });
-      const result = await loginWithWechat(role, profile);
+      Taro.showLoading({ title: '正在授权', mask: true });
+      const session = await openWechatSession(role, profile);
 
-      saveRoleSession(role, result, profile?.nickName || config.fallbackName);
+      Taro.showLoading({ title: '正在校验身份', mask: true });
+      const identity = await queryWechatIdentity(session.openid);
 
       Taro.hideLoading();
-      Taro.showToast({ title: '登录成功', icon: 'success' });
-      await Taro.redirectTo({ url: config.targetUrl });
+      await routeAfterIdentity(role, identity, profile?.nickName || config.fallbackName);
     } catch (error) {
       const message = error instanceof Error ? error.message : '登录失败';
       Taro.hideLoading();
@@ -137,12 +222,6 @@ export default function LoginPage() {
     }
   };
 
-  const returnToRole = () => {
-    void Taro.navigateBack({
-      fail: () => Taro.redirectTo({ url: '/pages/role/index' }),
-    });
-  };
-
   const showPolicy = (title: string) => {
     Taro.showModal({
       title,
@@ -154,11 +233,6 @@ export default function LoginPage() {
   return (
     <View className={`login-page login-page--${role}`}>
       <View className='login-shell'>
-        <Button className='login-back' onClick={returnToRole}>
-          <Text className='login-back__icon'>‹</Text>
-          <Text>返回</Text>
-        </Button>
-
         <View className='login-main'>
           <View className={`login-card__icon login-card__icon--${role}`}>
             <Text className='login-card__icon-text'>{config.icon}</Text>
@@ -186,11 +260,6 @@ export default function LoginPage() {
             <Text>{submitting ? '正在授权...' : '微信授权登录'}</Text>
           </Button>
 
-          {isElderlyMode && (
-            <View className='login-note'>
-              <Text>点击上方按钮即可使用微信登录</Text>
-            </View>
-          )}
         </View>
 
         <View className='login-bottom'>
@@ -222,10 +291,6 @@ export default function LoginPage() {
             </View>
           </View>
 
-          <View className='login-safe'>
-            <Text className='login-safe__icon'>锁</Text>
-            <Text>您的个人信息将被安全加密保护</Text>
-          </View>
         </View>
       </View>
     </View>

@@ -8,6 +8,7 @@ export interface FamilySession {
   elderlyId?: number;
   elderlyName?: string;
   bindingCode?: string;
+  wechatOpenid?: string;
 }
 
 const FAMILY_SESSION_KEY = 'kin-family-session';
@@ -34,6 +35,7 @@ export function getFamilySession(): FamilySession {
     elderlyId: normalizeNumber(stored?.elderlyId),
     elderlyName: normalizeText(stored?.elderlyName),
     bindingCode: normalizeText(stored?.bindingCode),
+    wechatOpenid: normalizeText(stored?.wechatOpenid),
   };
 }
 
@@ -46,6 +48,7 @@ export function saveFamilySession(session: Partial<FamilySession>) {
     elderlyId: normalizeNumber(session.elderlyId ?? current.elderlyId),
     elderlyName: normalizeText(session.elderlyName ?? current.elderlyName),
     bindingCode: normalizeText(session.bindingCode ?? current.bindingCode),
+    wechatOpenid: normalizeText(session.wechatOpenid ?? current.wechatOpenid),
   };
   Taro.setStorageSync(FAMILY_SESSION_KEY, next);
   return next;

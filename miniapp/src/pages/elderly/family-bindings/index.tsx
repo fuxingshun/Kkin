@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
+import qrcode from 'qrcode-generator';
 import {
   deleteFamilyUser,
   getFamilyUsers,
@@ -11,6 +12,37 @@ import {
 import { useElderlyPreferenceClassNames } from '@/utils/elderlyPreferences';
 import { getElderlySession } from '@/utils/session';
 
+const QR_SIZE_RPX = 360;
+
+function createBindingPayload(info: BindingCodeInfo | null) {
+  if (!info?.binding_code) {
+    return '';
+  }
+
+  const params = [
+    `code=${encodeURIComponent(info.binding_code)}`,
+    `family_id=${encodeURIComponent(info.family_id)}`,
+    `elderly_id=${encodeURIComponent(String(info.elderly_id))}`,
+  ];
+
+  return `kinecho://bind-elderly?${params.join('&')}`;
+}
+
+function createQrMatrix(value: string) {
+  if (!value) {
+    return [];
+  }
+
+  const qr = qrcode(0, 'M');
+  qr.addData(value);
+  qr.make();
+
+  const count = qr.getModuleCount();
+  return Array.from({ length: count }, (_, row) =>
+    Array.from({ length: count }, (__, col) => qr.isDark(row, col))
+  );
+}
+
 export default function ElderlyFamilyBindingsPage() {
   const preferenceClassName = useElderlyPreferenceClassNames();
   const { familyId, elderlyId } = getElderlySession();
@@ -20,6 +52,9 @@ export default function ElderlyFamilyBindingsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const familyMembers = useMemo(() => users.filter((item) => item.user_type === 'family'), [users]);
+  const qrPayload = useMemo(() => createBindingPayload(bindingInfo), [bindingInfo]);
+  const qrMatrix = useMemo(() => createQrMatrix(qrPayload), [qrPayload]);
+  const qrCellSize = qrMatrix.length ? QR_SIZE_RPX / qrMatrix.length : 0;
 
   const loadData = useCallback(async () => {
     try {
@@ -105,7 +140,30 @@ export default function ElderlyFamilyBindingsPage() {
           <View className='ef-form-panel__body'>
             <View className='ef-binding-code-card'>
               <Text className='ef-binding-code-card__value'>{bindingInfo?.binding_code || '加载中...'}</Text>
-              <Text className='ef-card-text'>家属端输入该绑定码，并填写自己的姓名和联系电话后，才能完成绑定。</Text>
+              <Text className='ef-card-text'>家属端输入绑定码，或扫描下方二维码，并填写自己的姓名和联系电话后，才能完成绑定。</Text>
+
+              {qrMatrix.length ? (
+                <View className='ef-qr-card'>
+                  <View className='ef-qr-grid'>
+                    {qrMatrix.map((row, rowIndex) => (
+                      <View className='ef-qr-row' key={`row-${rowIndex}`}>
+                        {row.map((dark, colIndex) => (
+                          <View
+                            key={`${rowIndex}-${colIndex}`}
+                            className={dark ? 'ef-qr-cell ef-qr-cell--dark' : 'ef-qr-cell'}
+                            style={{
+                              width: `${qrCellSize}rpx`,
+                              height: `${qrCellSize}rpx`,
+                            }}
+                          />
+                        ))}
+                      </View>
+                    ))}
+                  </View>
+                  <Text className='ef-qr-caption'>请让家属打开家属照护端，选择扫码绑定长辈</Text>
+                </View>
+              ) : null}
+
               <Button
                 className='service-button service-button--primary'
                 disabled={!bindingInfo?.binding_code || loading}

@@ -13,20 +13,20 @@ interface RoleCard {
 const roles: RoleCard[] = [
   {
     id: 'elderly',
-    title: '长辈',
-    description: '记录心情，关注健康',
+    title: '老人陪伴端',
+    description: '简单好用，温暖陪伴',
     icon: '长',
   },
   {
     id: 'family',
-    title: '家人',
-    description: '陪伴长辈，共同关怀',
+    title: '家属照护端',
+    description: '远程守护，及时牵挂',
     icon: '家',
   },
   {
     id: 'service',
-    title: '服务人员',
-    description: '提供服务，协同守护',
+    title: '服务协同端',
+    description: '仅限认证服务人员使用',
     icon: '护',
   },
 ];
@@ -43,7 +43,6 @@ export default function RolePage() {
           <Text className='role-logo__text'>心</Text>
         </View>
         <Text className='role-title'>心安关怀</Text>
-        <Text className='role-subtitle'>关注情绪·守护睡眠·日常关怀</Text>
       </View>
 
       <View className='role-list'>

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
+import { AppIcon, type AppIconName } from '@/components/AppIcon';
 import {
   createConsultation,
   getConsultations,
@@ -13,9 +14,9 @@ import { formatDateTimeText, formatDateTimeValue } from '@/utils/format';
 import { getElderlySession } from '@/utils/session';
 
 const methods = [
-  { type: 'phone' as const, icon: '电', title: '电话咨询', desc: '方便快捷，随时接听', className: 'ef-method--green' },
-  { type: 'video' as const, icon: '视', title: '视频咨询', desc: '面对面交流，更有温度', className: 'ef-method--purple' },
-  { type: 'text' as const, icon: '文', title: '文字咨询', desc: '慢慢倾诉，细细聆听', className: 'ef-method--amber' },
+  { type: 'phone' as const, icon: 'phone' as AppIconName, title: '电话咨询', desc: '方便快捷，随时接听', className: 'ef-method--green' },
+  { type: 'video' as const, icon: 'video' as AppIconName, title: '视频咨询', desc: '面对面交流，更有温度', className: 'ef-method--purple' },
+  { type: 'text' as const, icon: 'text' as AppIconName, title: '文字咨询', desc: '慢慢倾诉，细细聆听', className: 'ef-method--amber' },
 ];
 
 function getStatusLabel(status: string) {
@@ -86,14 +87,18 @@ export default function ElderlyCounselingPage() {
   return (
     <View className={`ef-page ef-page--sub ${preferenceClassName}`}>
       <View className='ef-topbar ef-topbar--sticky'>
-        <Text className='ef-topbar__back' onClick={() => Taro.redirectTo({ url: '/pages/elderly/home/index' })}>〈</Text>
+        <View className='ef-topbar__back' onClick={() => Taro.redirectTo({ url: '/pages/elderly/home/index' })}>
+          <AppIcon name='chevron-left' />
+        </View>
         <Text className='ef-topbar__title'>心理咨询服务</Text>
       </View>
 
       <View className='ef-counseling-content'>
         <View className='ef-consult-hero'>
           <View className='ef-consult-hero__top'>
-            <View className='ef-consult-icon'>心</View>
+            <View className='ef-consult-icon'>
+              <AppIcon name='heart' />
+            </View>
             <View>
               <Text className='ef-consult-title'>专业心理咨询服务</Text>
               <Text className='ef-consult-desc'>提供7×24小时专业心理咨询服务，资深咨询师团队随时为您提供支持</Text>
@@ -115,7 +120,7 @@ export default function ElderlyCounselingPage() {
                 className={`ef-method ${item.className} ${selectedType === item.type ? 'ef-method--active' : ''}`}
                 onClick={() => setSelectedType(item.type)}
               >
-                <Text>{item.icon}</Text>
+                <AppIcon name={item.icon} />
                 <View><Text>{item.title}</Text><Text>{item.desc}</Text></View>
               </Button>
             ))}
@@ -165,7 +170,9 @@ export default function ElderlyCounselingPage() {
               consultations.map((item) => (
                 <View className='ef-history-card' key={item.id}>
                   <View className='ef-history-head'>
-                    <View className='ef-history-icon'>✓</View>
+                    <View className='ef-history-icon'>
+                      <AppIcon name='check' />
+                    </View>
                     <View>
                       <View className='ef-inline'>
                         <Text className='ef-card-title'>{getTypeLabel(item.consultation_type)}</Text>

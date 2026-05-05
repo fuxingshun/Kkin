@@ -39,6 +39,21 @@ public class KinEchoApiController {
         return service.wechatLogin(data);
     }
 
+    @PostMapping("/auth/wechat-openid")
+    public ResponseEntity<Map<String, Object>> wechatOpenid(@RequestBody Map<String, Object> data) {
+        return service.wechatOpenid(data);
+    }
+
+    @GetMapping("/auth/wechat-identity")
+    public ResponseEntity<Map<String, Object>> wechatIdentity(@RequestParam String openid) {
+        return service.wechatIdentity(openid);
+    }
+
+    @PostMapping("/auth/service-certification")
+    public ResponseEntity<Map<String, Object>> serviceCertification(@RequestBody Map<String, Object> data) {
+        return service.submitServiceCertification(data);
+    }
+
     @GetMapping("/family/schedules")
     public ResponseEntity<Map<String, Object>> getFamilySchedules(@RequestParam(required = false) String family_id) {
         return service.getFamilySchedules(family_id);

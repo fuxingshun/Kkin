@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
+import { AppIcon } from '@/components/AppIcon';
 import {
   createConsultation,
   getCounselors,
@@ -17,13 +18,33 @@ const tabs = [
   { id: 'articles', label: '专栏' },
 ] as const;
 
+type DetailTab = (typeof tabs)[number]['id'];
+type CalendarDate = NonNullable<NonNullable<Counselor['calendar']>['dates']>[number];
+
 function getCounselorId() {
   const params = Taro.getCurrentInstance().router?.params || {};
   const value = Number(params.id || 1);
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
 
-function buildScheduledTime() {
+function parseCalendarMonth(month?: string) {
+  const match = String(month || '').match(/(\d{4})年(\d{1,2})月/);
+  if (!match) return null;
+  return {
+    year: Number(match[1]),
+    monthIndex: Number(match[2]) - 1,
+  };
+}
+
+function buildScheduledTime(calendarMonth?: string, date?: CalendarDate) {
+  const parsedMonth = parseCalendarMonth(calendarMonth);
+  const day = Number(date?.day);
+  if (parsedMonth && Number.isFinite(day) && day > 0) {
+    const selected = new Date(parsedMonth.year, parsedMonth.monthIndex, day, 19, 0, 0, 0);
+    if (selected.getTime() > Date.now()) {
+      return formatDateTimeValue(selected);
+    }
+  }
   return formatDateTimeValue(new Date(Date.now() + 60 * 60 * 1000));
 }
 
@@ -34,9 +55,16 @@ function splitSpecialty(value?: string) {
     .filter(Boolean);
 }
 
+function getPrimarySpecialty(counselor: Counselor | null) {
+  if (!counselor) return '心理支持';
+  return counselor.specialty || counselor.specialties?.map((item) => item.title).join('、') || '心理支持';
+}
+
 export default function ElderlyCounselorDetailPage() {
   const preferenceClassName = useElderlyPreferenceClassNames();
-  const [selectedTab, setSelectedTab] = useState<(typeof tabs)[number]['id']>('intro');
+  const [selectedTab, setSelectedTab] = useState<DetailTab>('intro');
+  const [selectedDateIndex, setSelectedDateIndex] = useState<number | null>(null);
+  const [isFollowing, setIsFollowing] = useState(true);
   const [counselors, setCounselors] = useState<Counselor[]>([]);
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(false);
@@ -81,9 +109,20 @@ export default function ElderlyCounselorDetailPage() {
   const calendar = counselor?.calendar || {};
   const calendarDates = Array.isArray(calendar.dates) ? calendar.dates : [];
   const notices = Array.isArray(counselor?.notices) ? counselor.notices : [];
+  const firstAvailableIndex = calendarDates.findIndex((date) => Boolean(date.available));
+  const selectedDate = selectedDateIndex !== null ? calendarDates[selectedDateIndex] : calendarDates[firstAvailableIndex];
   const price = counselor?.price ?? 0;
-  const discountPrice = counselor?.discount_price ?? price;
   const canBook = counselor?.available ?? false;
+  const primarySpecialty = getPrimarySpecialty(counselor);
+  const articleTopics = specialties.flatMap((item) => item.items?.slice(0, 2) || [item.title]).slice(0, 4);
+
+  function selectTab(tab: DetailTab) {
+    setSelectedTab(tab);
+    void Taro.pageScrollTo({
+      selector: `#cd-section-${tab}`,
+      duration: 180,
+    });
+  }
 
   async function bookCounselor(consultationType: Consultation['consultation_type'] = 'video') {
     if (!counselor) {
@@ -99,12 +138,12 @@ export default function ElderlyCounselorDetailPage() {
       await createConsultation({
         counselor_id: counselor.id,
         consultation_type: consultationType === 'phone' ? 'phone' : 'video',
-        scheduled_time: buildScheduledTime(),
+        scheduled_time: buildScheduledTime(calendar.month, selectedDate),
         duration: 45,
         notify_service: true,
         concern_level: 'medium',
-        topic: counselor.specialty || specialties.map((item) => item.title).join('、') || '心理咨询预约',
-        note: `老人端预约：${counselor.name}`,
+        topic: primarySpecialty || '心理咨询预约',
+        note: `老人端预约：${counselor.name}${selectedDate?.day ? `，意向日期：${calendar.month || ''}${selectedDate.day}日` : ''}`,
       });
       Taro.showToast({ title: '预约已提交', icon: 'success' });
     } catch (error) {
@@ -115,43 +154,51 @@ export default function ElderlyCounselorDetailPage() {
     }
   }
 
+  function openArticle(topic: string) {
+    const query = [
+      `topic=${encodeURIComponent(topic)}`,
+      `name=${encodeURIComponent(counselor?.name || '咨询师')}`,
+      `title=${encodeURIComponent(counselor?.title || '')}`,
+      `specialty=${encodeURIComponent(primarySpecialty || topic)}`,
+      `id=${counselor?.id || counselorId}`,
+    ].join('&');
+
+    void Taro.navigateTo({
+      url: `/pages/elderly/counselor-article/index?${query}`,
+    });
+  }
+
   return (
     <View className={`pc-page cd-page ${preferenceClassName}`}>
       <View className='cd-topbar'>
-        <Text className='cd-topbar__back' onClick={() => Taro.navigateBack()}>‹</Text>
+        <View className='cd-topbar__back' onClick={() => Taro.navigateBack()}>
+          <AppIcon name='chevron-left' />
+        </View>
         <Text className='cd-topbar__title'>
-          {counselor ? `${counselor.name}心理咨询师-壹心理` : loading ? '咨询师详情' : '未找到咨询师'}
+          {counselor ? `${counselor.name} · ${counselor.title}` : loading ? '咨询师详情' : '未找到咨询师'}
         </Text>
         <View className='cd-topbar__actions'>
-          <Text>···</Text>
-          <Text>－</Text>
-          <Text>○</Text>
+          <View className='cd-topbar__icon-button' onClick={() => void loadData()}>
+            <AppIcon name='refresh' />
+          </View>
+          <View
+            className='cd-topbar__icon-button'
+            onClick={() => Taro.showToast({ title: '可使用右上角分享给家属', icon: 'none' })}
+          >
+            <AppIcon name='share' />
+          </View>
         </View>
       </View>
 
       <View className='cd-content'>
-        <View className='cd-hero'>
-          <Text className='cd-hero__avatar'>{counselor?.hero_emoji || counselor?.avatar || '咨'}</Text>
-          <View className='cd-hero__count'>
-            <Text>1/2</Text>
-          </View>
-          <View className='cd-hero__hint'>
-            <Text className='cd-hero__dot' />
-            <Text>{counselor?.hero_hint || '正在同步咨询师资料'}</Text>
-          </View>
-          <View className='cd-hero__card-button'>
-            <Text>名片</Text>
-          </View>
-        </View>
-
         <View className='cd-card cd-profile-card'>
           <View className='cd-profile-card__head'>
             <View className='cd-profile-card__name-row'>
               <Text className='cd-name'>{counselor?.name || (loading ? '加载中' : '未找到')}</Text>
               <View className='cd-verified'>
-                <Text>✓</Text>
+                <AppIcon name='check' />
               </View>
-              <Text className='cd-badge cd-badge--blue'>{canBook ? '执业' : '暂不可约'}</Text>
+              <Text className='cd-badge cd-badge--blue'>{canBook ? '执业认证' : '暂不可约'}</Text>
               {counselor?.title ? <Text className='cd-badge cd-badge--purple'>{counselor.title}</Text> : null}
             </View>
             <View className='cd-price'>
@@ -175,7 +222,6 @@ export default function ElderlyCounselorDetailPage() {
           <View className='cd-stat-grid'>
             <View className='cd-stat'>
               <Text className='cd-stat__value'>{stats.hours || '--'}</Text>
-              <Text className='cd-stat__label'>小时</Text>
               <Text className='cd-stat__label'>服务时长</Text>
             </View>
             <View className='cd-stat'>
@@ -188,19 +234,12 @@ export default function ElderlyCounselorDetailPage() {
             </View>
             <View className='cd-stat'>
               <Text className='cd-stat__value'>{stats.supervision || '--'}</Text>
-              <Text className='cd-stat__label'>小时</Text>
-              <Text className='cd-stat__label'>个体督导</Text>
+              <Text className='cd-stat__label'>督导时长</Text>
             </View>
           </View>
 
-          <View className='cd-meta-row'>
-            {counselor?.availability_text ? <Text>{counselor.availability_text}</Text> : null}
-            {counselor?.format_text ? <Text>▣ {counselor.format_text}</Text> : null}
-            {counselor?.location ? <Text>⌖ {counselor.location}</Text> : null}
-          </View>
-
           <View className='cd-soft-tag-row'>
-            {['无忧保障', '24h前免费取消', '拒单补偿', '1v1匹配咨询师'].map((item) => (
+            {['无忧保障', '24h前免费取消', '服务端协同', '1v1匹配咨询师'].map((item) => (
               <Text className='cd-soft-tag' key={item}>{item}</Text>
             ))}
           </View>
@@ -211,39 +250,41 @@ export default function ElderlyCounselorDetailPage() {
             <View
               key={tab.id}
               className={`cd-tab ${selectedTab === tab.id ? 'cd-tab--active' : ''}`}
-              onClick={() => setSelectedTab(tab.id)}
+              onClick={() => selectTab(tab.id)}
             >
               <Text>{tab.label}</Text>
             </View>
           ))}
         </View>
 
-        <View className='cd-card'>
+        <View id='cd-section-intro' className='cd-card'>
           <Text className='cd-section-title'>擅长领域</Text>
           {specialties.length ? (
             <View className='cd-specialty-list'>
               {specialties.map((specialty) => (
                 <View className='cd-specialty' key={specialty.title}>
-                  <Text className='cd-specialty__title'>{specialty.title}</Text>
+                  <View className='cd-specialty__head'>
+                    <AppIcon name='heart' />
+                    <Text className='cd-specialty__title'>{specialty.title}</Text>
+                  </View>
                   {specialty.items?.length ? (
                     <View className='cd-specialty__items'>
-                      {specialty.items.map((item, index) => (
-                        <Text key={item} className='cd-specialty__item'>
-                          {item}{index < (specialty.items?.length || 0) - 1 ? '、' : ''}
-                        </Text>
+                      {specialty.items.map((item) => (
+                        <Text key={item} className='cd-specialty__item'>{item}</Text>
                       ))}
                     </View>
-                  ) : null}
+                  ) : (
+                    <Text className='cd-section-desc cd-section-desc--plain'>咨询师会结合首次访谈继续细化支持方向。</Text>
+                  )}
                 </View>
               ))}
             </View>
           ) : (
             <Text className='cd-section-desc'>暂无擅长领域信息</Text>
           )}
-          <Text className='cd-link'>展开全部简介</Text>
         </View>
 
-        <View className='cd-card'>
+        <View id='cd-section-packages' className='cd-card'>
           <Text className='cd-section-title'>咨询方案</Text>
           {packages.length ? (
             <View className='cd-package-list'>
@@ -258,9 +299,18 @@ export default function ElderlyCounselorDetailPage() {
                         <Text className='cd-package__unit'>/次</Text>
                       </View>
                       {item.description ? <Text className='cd-package__desc'>{item.description}</Text> : null}
-                      {item.label ? <Text className='cd-package__link'>查看套餐详情 ›</Text> : null}
+                      {selectedDate?.day ? (
+                        <Text className='cd-package__link'>意向时间：{calendar.month || ''}{selectedDate.day}日 19:00</Text>
+                      ) : (
+                        <Text className='cd-package__link'>选择可约日期后成功率更高</Text>
+                      )}
                     </View>
-                    <Button className='cd-package__button' loading={booking} onClick={() => void bookCounselor('video')}>
+                    <Button
+                      className='cd-package__button'
+                      disabled={!canBook}
+                      loading={booking}
+                      onClick={() => void bookCounselor('video')}
+                    >
                       去预约
                     </Button>
                   </View>
@@ -272,9 +322,9 @@ export default function ElderlyCounselorDetailPage() {
           )}
         </View>
 
-        <View className='cd-card'>
+        <View id='cd-section-schedule' className='cd-card'>
           <Text className='cd-section-title'>可约时间（北京时间）</Text>
-          <Text className='cd-section-desc'>选择咨询师已开放的咨询时间，预约成功率更高哦~</Text>
+          <Text className='cd-section-desc'>选择咨询师已开放的咨询时间，预约将同步到家属端和服务端。</Text>
           <Text className='cd-calendar-month'>{calendar.month || '--'}</Text>
 
           <View className='cd-week-row'>
@@ -284,23 +334,47 @@ export default function ElderlyCounselorDetailPage() {
           </View>
           {calendarDates.length ? (
             <View className='cd-calendar-grid'>
-              {calendarDates.map((date, index) => (
-                <View
-                  key={`${date.day}-${index}`}
-                  className={`cd-date ${date.isToday ? 'cd-date--today' : ''}`}
-                >
-                  <Text className='cd-date__day'>{date.day}</Text>
-                  {date.status === 'full' ? (
-                    <Text className='cd-date__status'>满</Text>
-                  ) : date.available ? (
-                    <Text className='cd-date__status cd-date__status--available'>剩{date.available}</Text>
-                  ) : null}
-                </View>
-              ))}
+              {calendarDates.map((date, index) => {
+                const isSelected = selectedDateIndex === index || (selectedDateIndex === null && firstAvailableIndex === index);
+                return (
+                  <View
+                    key={`${date.day}-${index}`}
+                    className={`cd-date ${date.isToday ? 'cd-date--today' : ''} ${date.available ? 'cd-date--available' : 'cd-date--disabled'} ${isSelected ? 'cd-date--selected' : ''}`}
+                    onClick={() => {
+                      if (date.available) setSelectedDateIndex(index);
+                    }}
+                  >
+                    <Text className='cd-date__day'>{date.day}</Text>
+                    {date.status === 'full' ? (
+                      <Text className='cd-date__status'>满</Text>
+                    ) : date.available ? (
+                      <Text className='cd-date__status cd-date__status--available'>剩{date.available}</Text>
+                    ) : null}
+                  </View>
+                );
+              })}
             </View>
           ) : (
             <Text className='cd-section-desc'>暂无可约时间</Text>
           )}
+        </View>
+
+        <View id='cd-section-articles' className='cd-card'>
+          <Text className='cd-section-title'>咨询师专栏</Text>
+          <View className='cd-article-list'>
+            {(articleTopics.length ? articleTopics : ['情绪照护', '家庭沟通']).map((topic) => (
+              <View className='cd-article' hoverClass='cd-article--hover' key={topic} onClick={() => openArticle(topic)}>
+                <View className='cd-article__icon'>
+                  <AppIcon name='book' />
+                </View>
+                <View className='cd-article__body'>
+                  <Text className='cd-article__title'>给长辈看的{topic}小科普</Text>
+                  <Text className='cd-article__meta'>{counselor?.name || '咨询师'} · 老人端心理科普</Text>
+                </View>
+                <AppIcon name='chevron-right' className='cd-chevron' />
+              </View>
+            ))}
+          </View>
         </View>
 
         <View className='cd-card cd-notice-card'>
@@ -309,7 +383,9 @@ export default function ElderlyCounselorDetailPage() {
             <View className='cd-notice-list'>
               {notices.map((item) => (
                 <View className='cd-notice' key={item.title}>
-                  <View className='cd-notice__mark' />
+                  <View className='cd-notice__mark'>
+                    <AppIcon name='check' />
+                  </View>
                   <View className='cd-notice__body'>
                     <Text className='cd-notice__heading'>{item.title}</Text>
                     <Text className='cd-notice__text'>{item.text}</Text>
@@ -324,16 +400,11 @@ export default function ElderlyCounselorDetailPage() {
       </View>
 
       <View className='cd-bottom-bar'>
-        <View className='cd-follow'>
-          <Text className='cd-follow__icon'>人</Text>
-          <Text>已关注</Text>
+        <View className='cd-follow' onClick={() => setIsFollowing((value) => !value)}>
+          <AppIcon name={isFollowing ? 'check' : 'heart'} className='cd-follow__icon' />
+          <Text>{isFollowing ? '已关注' : '关注'}</Text>
         </View>
-        <Button className='cd-assistant-button' onClick={() => Taro.navigateTo({ url: '/pages/elderly/companion/index' })}>
-          先找助理聊聊
-          <Text className='cd-red-dot' />
-        </Button>
-        <Button className='cd-book-button' loading={booking} onClick={() => void bookCounselor('video')}>
-          {discountPrice ? <Text className='cd-discount'>低至{discountPrice}元/次</Text> : null}
+        <Button className='cd-book-button' disabled={!canBook} loading={booking} onClick={() => void bookCounselor('video')}>
           立即预约
         </Button>
       </View>

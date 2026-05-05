@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
+import { AppIcon, type AppIconName } from '@/components/AppIcon';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
 import {
   getElderlyProfileStats,
@@ -19,7 +20,7 @@ import {
 import { clearElderlySession, getElderlySession } from '@/utils/session';
 
 interface SettingItem {
-  icon: string;
+  icon: AppIconName;
   label: string;
   value: string;
   action?: () => void | Promise<void>;
@@ -56,6 +57,7 @@ export default function ElderlyProfilePage() {
   const companionDays = profileStats?.companion_days ?? 0;
   const interactionCount = profileStats?.interaction_count ?? 0;
   const favoriteMemories = profileStats?.favorite_memories ?? 0;
+  const profileInitial = profileName.slice(0, 1) || '长';
 
   function persistPreferences(patch: Partial<ElderlyPreferences>, title = '设置已保存') {
     const next = saveElderlyPreferences(patch);
@@ -108,13 +110,13 @@ export default function ElderlyProfilePage() {
         title: '个人信息',
         items: [
           {
-            icon: '人',
+            icon: 'user',
             label: '基本信息',
             value: elderly?.phone ? `${profileName} · ${elderly.phone}` : profileName,
             action: () => Taro.navigateTo({ url: '/pages/elderly/basic-info/index' }),
           },
           {
-            icon: '属',
+            icon: 'users',
             label: '已绑定家属',
             value: familyMembers.length ? `${familyMembers.length}位家属` : '暂无绑定家属',
             action: () => Taro.navigateTo({ url: '/pages/elderly/family-bindings/index' }),
@@ -124,9 +126,9 @@ export default function ElderlyProfilePage() {
       {
         title: '适老化设置',
         items: [
-          { icon: '字', label: '字体大小', value: getElderlyFontSizeLabel(preferences.fontSize), action: chooseFontSize },
+          { icon: 'text', label: '字体大小', value: getElderlyFontSizeLabel(preferences.fontSize), action: chooseFontSize },
           {
-            icon: '亮',
+            icon: 'check',
             label: '高对比模式',
             value: preferences.highContrast ? '已开启' : '已关闭',
             action: toggleHighContrast,
@@ -137,12 +139,12 @@ export default function ElderlyProfilePage() {
         title: '其他',
         items: [
           {
-            icon: '盾',
+            icon: 'shield',
             label: '隐私说明',
             value: '',
             action: () => Taro.showToast({ title: '隐私说明已同步', icon: 'none' }),
           },
-          { icon: '问', label: '帮助中心', value: '', action: () => Taro.navigateTo({ url: '/pages/elderly/help/index' }) },
+          { icon: 'help', label: '帮助中心', value: '', action: () => Taro.navigateTo({ url: '/pages/elderly/help/index' }) },
         ],
       },
     ],
@@ -169,7 +171,7 @@ export default function ElderlyProfilePage() {
     <View className={`ef-page ef-page--tab ef-profile-page ${preferenceClassName}`}>
       <View className='ef-profile-hero'>
         <View className='ef-profile-avatar'>
-          <Text>👵</Text>
+          <Text>{profileInitial}</Text>
         </View>
         <View className='ef-profile-hero__body'>
           <Text className='ef-profile-name'>{profileName}</Text>
@@ -196,13 +198,13 @@ export default function ElderlyProfilePage() {
                 onClick={item.action ? () => void item.action?.() : undefined}
               >
                 <View className='ef-setting-icon'>
-                  <Text>{item.icon}</Text>
+                  <AppIcon name={item.icon} />
                 </View>
                 <View className='ef-setting-row__body'>
                   <Text className='ef-setting-label'>{item.label}</Text>
                   {item.value ? <Text className='ef-setting-value'>{item.value}</Text> : null}
                 </View>
-                {item.action ? <Text className='ef-chevron'>〉</Text> : null}
+                {item.action ? <AppIcon name='chevron-right' className='ef-chevron' /> : null}
               </View>
             ))}
           </View>

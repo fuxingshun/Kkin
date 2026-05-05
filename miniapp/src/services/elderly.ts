@@ -2,7 +2,7 @@ import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
 import { type CareInsight } from '@/services/family';
 import { getUploadMediaUrl, getUploadThumbnailUrl } from '@/utils/media';
 import { buildQueryString, request } from '@/utils/request';
-import { getElderlySession } from '@/utils/session';
+import { getElderlyChatUsername, getElderlySession } from '@/utils/session';
 
 export type MoodType = 'happy' | 'calm' | 'sad' | 'anxious' | 'angry' | 'tired';
 
@@ -334,6 +334,7 @@ export async function createUser(payload: {
   created_by?: string;
   updated_by?: string;
   operator?: string;
+  wechat_openid?: string;
 }) {
   const data = await request<{ user_id: number }>('/users', {
     method: 'POST',
@@ -543,55 +544,11 @@ export async function getElderlyProfileStats(
 ) {
   const resolvedFamilyId = resolveFamilyId(familyId);
   const resolvedElderlyId = resolveElderlyId(elderlyId);
-  const alertParams = buildQueryString({
+  const params = buildQueryString({
     family_id: resolvedFamilyId,
     elderly_id: String(resolvedElderlyId),
-    limit: 500,
   });
-
-  const [usersResult, moodsResult, mediaHistoryResult, alertsResult, messagesResult, aiResult] = await Promise.allSettled([
-    getFamilyUsers(resolvedFamilyId),
-    getMoodRecords(resolvedFamilyId, resolvedElderlyId, 500),
-    getMediaHistory(resolvedElderlyId, 500),
-    request<{ alerts: Array<{ source?: string }>; total?: number }>(`/family/alerts?${alertParams}`),
-    getElderlyMessages(resolvedFamilyId),
-    getAiInteractions(500),
-  ]);
-
-  const users = usersResult.status === 'fulfilled' ? usersResult.value : [];
-  const moods = moodsResult.status === 'fulfilled' ? moodsResult.value : [];
-  const mediaHistory = mediaHistoryResult.status === 'fulfilled' ? mediaHistoryResult.value : [];
-  const alerts = alertsResult.status === 'fulfilled' ? alertsResult.value.alerts || [] : [];
-  const messages = messagesResult.status === 'fulfilled' ? messagesResult.value : [];
-  const aiInteractions = aiResult.status === 'fulfilled' ? aiResult.value : [];
-  const elderly =
-    users.find((item) => item.id === resolvedElderlyId && item.user_type === 'elderly') ||
-    users.find((item) => item.user_type === 'elderly');
-  const favoriteMediaIds = new Set(
-    mediaHistory
-      .filter((item) => item.feedback_type === 'like')
-      .map((item) => item.media_id)
-  );
-  const createdAt = elderly?.created_at;
-  const createdDate = createdAt ? new Date(createdAt.replace(' ', 'T')) : null;
-  const companionDays =
-    createdDate && !Number.isNaN(createdDate.getTime())
-      ? Math.max(1, Math.floor((Date.now() - createdDate.getTime()) / 86400000) + 1)
-      : 0;
-
-  return {
-    elderly_id: resolvedElderlyId,
-    elderly_name: elderly?.name,
-    companion_days: companionDays,
-    interaction_count:
-      moods.length +
-      mediaHistory.length +
-      alerts.filter((item) => item.source === 'elderly').length +
-      messages.filter((item) => item.played).length +
-      aiInteractions.length,
-    favorite_memories: favoriteMediaIds.size,
-    created_at: createdAt,
-  };
+  return request<ElderlyProfileStats>(`/elderly/profile-stats?${params}`);
 }
 
 export async function getElderlyCareInsight(
@@ -706,9 +663,9 @@ export async function requestPsychologicalSupport(payload: {
   return data.alert_id;
 }
 
-export async function getAiInteractions(limit = 30) {
+export async function getAiInteractions(limit = 30, username = getElderlyChatUsername()) {
   const params = buildQueryString({
-    username: 'User',
+    username,
     limit: String(limit),
   });
 

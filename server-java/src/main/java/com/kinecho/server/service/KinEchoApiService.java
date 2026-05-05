@@ -118,6 +118,104 @@ public class KinEchoApiService {
         }
     }
 
+    public ResponseEntity<Map<String, Object>> wechatOpenid(Map<String, Object> data) {
+        if (!has(data, "role", "code")) {
+            return bad("missing required fields");
+        }
+
+        String role = db.string(data.get("role")).trim().toLowerCase();
+        String code = db.string(data.get("code")).trim();
+        if (!List.of("elderly", "family", "service").contains(role)) {
+            return bad("invalid role");
+        }
+        if (blank(code)) {
+            return bad("wechat code is required");
+        }
+
+        try {
+            WechatSession wechatSession = resolveWechatSession(role, code);
+            updateWechatProfileByOpenid(wechatSession, asMap(data.get("user_info")));
+            return ok(db.map(
+                "success", true,
+                "openid", wechatSession.openid(),
+                "unionid", wechatSession.unionid(),
+                "selected_role", role
+            ));
+        } catch (Exception error) {
+            return status(HttpStatus.BAD_GATEWAY, db.map("error", "wechat login failed: " + error.getMessage()));
+        }
+    }
+
+    public ResponseEntity<Map<String, Object>> wechatIdentity(String openid) {
+        String normalizedOpenid = db.string(openid).trim();
+        if (blank(normalizedOpenid)) {
+            return bad("missing openid");
+        }
+
+        Map<String, Object> elderly = identityUser(normalizedOpenid, "elderly");
+        Map<String, Object> family = identityUser(normalizedOpenid, "family");
+        Map<String, Object> service = serviceIdentity(normalizedOpenid);
+
+        List<String> roles = new ArrayList<>();
+        if (db.boolValue(elderly.get("has_role"))) {
+            roles.add("elderly");
+        }
+        if (db.boolValue(family.get("has_role"))) {
+            roles.add("family");
+        }
+        if (db.boolValue(service.get("has_role"))) {
+            roles.add("service");
+        }
+
+        return ok(db.map(
+            "success", true,
+            "openid", normalizedOpenid,
+            "roles", roles,
+            "elderly", elderly,
+            "family", family,
+            "service", service
+        ));
+    }
+
+    public ResponseEntity<Map<String, Object>> submitServiceCertification(Map<String, Object> data) {
+        if (!has(data, "openid", "name", "phone", "staff_no", "organization")) {
+            return bad("missing required fields");
+        }
+
+        String openid = db.string(data.get("openid")).trim();
+        String name = db.string(data.get("name")).trim();
+        String phone = db.string(data.get("phone")).trim();
+        String staffNo = db.string(data.get("staff_no")).trim();
+        String organization = db.string(data.get("organization")).trim();
+        if (blank(openid) || blank(name) || blank(phone) || blank(staffNo) || blank(organization)) {
+            return bad("certification fields cannot be blank");
+        }
+
+        Map<String, Object> existing = db.one("""
+            SELECT id, status
+            FROM service_certifications
+            WHERE wechat_openid = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """, openid).orElse(null);
+
+        if (existing == null) {
+            db.insert("""
+                INSERT INTO service_certifications (wechat_openid, name, phone, staff_no, organization, status)
+                VALUES (?, ?, ?, ?, ?, 'pending')
+                """, openid, name, phone, staffNo, organization);
+        } else {
+            db.update("""
+                UPDATE service_certifications
+                SET name = ?, phone = ?, staff_no = ?, organization = ?, status = 'pending',
+                    reviewed_at = NULL, reviewer = '', reject_reason = '', updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """, name, phone, staffNo, organization, existing.get("id"));
+        }
+
+        return ok(db.map("success", true, "status", "pending"));
+    }
+
     public ResponseEntity<Map<String, Object>> getFamilySchedules(String family_id) {
         if (blank(family_id)) {
             return bad("missing family_id");
@@ -493,29 +591,35 @@ public class KinEchoApiService {
         long moodCount = db.count("""
             SELECT COUNT(*)
             FROM mood_records
-            WHERE family_id = ? AND elderly_id = ?
-            """, familyId, resolvedElderlyId);
+            WHERE family_id = ? AND elderly_id = ? AND (? IS NULL OR recorded_at >= ?)
+            """, familyId, resolvedElderlyId, createdAt, createdAt);
         long mediaPlayCount = db.count("""
             SELECT COUNT(*)
             FROM media_play_history
-            WHERE elderly_id = ?
-            """, resolvedElderlyId);
+            WHERE elderly_id = ? AND (? IS NULL OR played_at >= ?)
+            """, resolvedElderlyId, createdAt, createdAt);
         long alertCount = db.count("""
             SELECT COUNT(*)
             FROM family_alerts
             WHERE family_id = ? AND elderly_id = ? AND source = 'elderly' AND is_active = 1
-            """, familyId, resolvedElderlyId);
+              AND (? IS NULL OR created_at >= ?)
+            """, familyId, resolvedElderlyId, createdAt, createdAt);
         long playedMessageCount = db.count("""
             SELECT COUNT(*)
             FROM family_messages
             WHERE family_id = ? AND played = 1 AND is_active = 1
-            """, familyId);
-        long aiInteractionCount = db.count("SELECT COUNT(*) FROM ai_interactions");
-        long favoriteMemories = db.count("""
+              AND (? IS NULL OR played_at >= ?)
+            """, familyId, createdAt, createdAt);
+        long aiInteractionCount = db.count("""
             SELECT COUNT(*)
+            FROM ai_interactions
+            WHERE username = ?
+            """, elderlyChatUsername(familyId, resolvedElderlyId));
+        long favoriteMemories = db.count("""
+            SELECT COUNT(DISTINCT media_id)
             FROM media_feedback
-            WHERE elderly_id = ? AND feedback_type = 'like'
-            """, resolvedElderlyId);
+            WHERE elderly_id = ? AND feedback_type = 'like' AND (? IS NULL OR created_at >= ?)
+            """, resolvedElderlyId, createdAt, createdAt);
 
         return ok(db.map(
             "elderly_id", resolvedElderlyId,
@@ -1078,8 +1182,12 @@ public class KinEchoApiService {
             return bad("invalid user_type");
         }
         String bindingCode = "elderly".equals(userType) ? nextBindingCode() : "";
-        long id = db.insert("INSERT INTO users (user_type, name, phone, family_id, binding_code, is_active, created_by, updated_by) VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+        long id = db.insert("""
+            INSERT INTO users (user_type, name, phone, family_id, binding_code, wechat_openid, is_active, created_by, updated_by)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+            """,
             userType, data.get("name"), value(data, "phone", ""), data.get("family_id"), bindingCode,
+            value(data, "wechat_openid", ""),
             value(data, "created_by", value(data, "operator", "")), value(data, "updated_by", value(data, "operator", "")));
         return created(db.map("success", true, "user_id", id));
     }
@@ -1193,6 +1301,7 @@ public class KinEchoApiService {
         String phone = db.string(value(data, "phone", "")).trim();
         String operator = db.string(value(data, "operator", "family-bind")).trim();
         String name = db.string(data.get("name")).trim();
+        String wechatOpenid = db.string(value(data, "wechat_openid", "")).trim();
 
         Map<String, Object> existingFamilyUser = phone.isBlank()
             ? null
@@ -1207,14 +1316,15 @@ public class KinEchoApiService {
             userId = db.longValue(existingFamilyUser.get("id"), 0);
             db.update("""
                 UPDATE users
-                SET name = ?, phone = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+                SET name = ?, phone = ?, wechat_openid = COALESCE(NULLIF(?, ''), wechat_openid),
+                    updated_by = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND is_active = 1
-                """, name, phone, operator, userId);
+                """, name, phone, wechatOpenid, operator, userId);
         } else {
             userId = db.insert("""
-                INSERT INTO users (user_type, name, phone, family_id, binding_code, is_active, created_by, updated_by)
-                VALUES ('family', ?, ?, ?, '', 1, ?, ?)
-                """, name, phone, familyId, operator, operator);
+                INSERT INTO users (user_type, name, phone, family_id, binding_code, wechat_openid, is_active, created_by, updated_by)
+                VALUES ('family', ?, ?, ?, '', ?, 1, ?, ?)
+                """, name, phone, familyId, wechatOpenid, operator, operator);
         }
 
         return ok(db.map(
@@ -3026,6 +3136,10 @@ public class KinEchoApiService {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
+    private String elderlyChatUsername(String familyId, long elderlyId) {
+        return "elderly:" + familyId + ":" + elderlyId;
+    }
+
     private String nextBindingCode() {
         for (int attempt = 0; attempt < 8; attempt++) {
             String candidate = UUID.randomUUID().toString().replace("-", "").substring(0, 8).toUpperCase();
@@ -3104,6 +3218,123 @@ public class KinEchoApiService {
             user.get("id"));
     }
 
+    private void updateWechatProfileByOpenid(WechatSession wechatSession, Map<String, Object> userInfo) {
+        if (userInfo.isEmpty() && blank(wechatSession.unionid())) {
+            return;
+        }
+        db.update("""
+            UPDATE users
+            SET wechat_unionid = COALESCE(NULLIF(?, ''), wechat_unionid),
+                wechat_nickname = COALESCE(NULLIF(?, ''), wechat_nickname),
+                wechat_avatar = COALESCE(NULLIF(?, ''), wechat_avatar),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE wechat_openid = ? AND is_active = 1
+            """,
+            wechatSession.unionid(),
+            db.string(userInfo.get("nickName")),
+            db.string(userInfo.get("avatarUrl")),
+            wechatSession.openid());
+    }
+
+    private Map<String, Object> identityUser(String openid, String userType) {
+        Map<String, Object> user = db.one("""
+            SELECT id, user_type, name, phone, family_id, binding_code
+            FROM users
+            WHERE wechat_openid = ? AND user_type = ? AND is_active = 1
+            ORDER BY updated_at DESC, created_at DESC, id DESC
+            LIMIT 1
+            """, openid, userType).orElse(null);
+
+        if (user == null) {
+            return db.map(
+                "has_role", false,
+                "bound_elderly", false
+            );
+        }
+
+        long userId = db.longValue(user.get("id"), 0);
+        String familyId = db.string(user.get("family_id"));
+        Map<String, Object> body = db.map(
+            "has_role", true,
+            "user_id", userId,
+            "display_name", user.get("name"),
+            "name", user.get("name"),
+            "family_id", familyId,
+            "binding_code", user.get("binding_code")
+        );
+
+        if ("elderly".equals(userType)) {
+            body.put("elderly_id", userId);
+            body.put("elderly_name", user.get("name"));
+            body.put("bound_elderly", true);
+            return body;
+        }
+
+        body.put("family_user_id", userId);
+        Map<String, Object> elderly = db.one("""
+            SELECT id, name
+            FROM users
+            WHERE family_id = ? AND user_type = 'elderly' AND is_active = 1
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1
+            """, familyId).orElse(null);
+        body.put("bound_elderly", elderly != null);
+        if (elderly != null) {
+            body.put("elderly_id", elderly.get("id"));
+            body.put("elderly_name", elderly.get("name"));
+        }
+        return body;
+    }
+
+    private Map<String, Object> serviceIdentity(String openid) {
+        if (!blank(properties.serviceWechatOpenid) && properties.serviceWechatOpenid.equals(openid)) {
+            return db.map(
+                "has_role", true,
+                "certified", true,
+                "status", "approved",
+                "username", "wechat-service",
+                "display_name", properties.serviceDisplayName,
+                "family_id", properties.serviceFamilyId
+            );
+        }
+
+        Map<String, Object> certification = db.one("""
+            SELECT name, phone, staff_no, organization, status, reject_reason
+            FROM service_certifications
+            WHERE wechat_openid = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """, openid).orElse(null);
+        if (certification == null) {
+            return db.map(
+                "has_role", false,
+                "certified", false,
+                "status", "none"
+            );
+        }
+
+        String status = db.string(certification.get("status")).trim().toLowerCase();
+        if (!List.of("pending", "approved", "rejected").contains(status)) {
+            status = "pending";
+        }
+
+        Map<String, Object> body = db.map(
+            "has_role", "approved".equals(status),
+            "certified", "approved".equals(status),
+            "status", status,
+            "username", db.string(certification.get("staff_no")),
+            "display_name", db.string(certification.get("name")),
+            "family_id", properties.serviceFamilyId,
+            "organization", db.string(certification.get("organization")),
+            "staff_no", db.string(certification.get("staff_no")),
+            "phone", db.string(certification.get("phone"))
+        );
+        if ("rejected".equals(status)) {
+            body.put("reason", db.string(certification.get("reject_reason")));
+        }
+        return body;
+    }
+
     private ResponseEntity<Map<String, Object>> loginUser(String userType, String username, String password) {
         Map<String, Object> user = db.one("""
             SELECT id, user_type, name, phone, family_id, binding_code
@@ -3158,6 +3389,7 @@ public class KinEchoApiService {
         Map<String, Object> body = db.map(
             "success", true,
             "role", "service",
+            "openid", openid,
             "username", "wechat-service",
             "display_name", properties.serviceDisplayName,
             "family_id", properties.serviceFamilyId

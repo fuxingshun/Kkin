@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
+import { AppIcon } from '@/components/AppIcon';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
 import { EmptyState } from '@/components/EmptyState';
 import {
@@ -206,9 +207,13 @@ export default function ElderlyCounselorListPage() {
   return (
     <View className={`pc-page counselor-page ef-page--tab ${preferenceClassName}`}>
       <View className='pc-sub-topbar'>
-        <Text className='pc-topbar-button' onClick={() => Taro.navigateBack()}>‹</Text>
+        <View className='pc-topbar-button' onClick={() => Taro.navigateBack()}>
+          <AppIcon name='chevron-left' />
+        </View>
         <Text className='pc-sub-title'>咨询师列表</Text>
-        <Text className='pc-topbar-button' onClick={() => void loadData()}>刷</Text>
+        <View className='pc-topbar-button' onClick={() => void loadData()}>
+          <AppIcon name='refresh' />
+        </View>
       </View>
 
       <View className='pc-filter-strip'>
@@ -257,7 +262,7 @@ export default function ElderlyCounselorListPage() {
 
       <View className='pc-counselor-content'>
         <View className='pc-list-title-row'>
-          <Text className='pc-title-icon'>✓</Text>
+          <AppIcon name='check' className='pc-title-icon' />
           <Text className='pc-section-title'>为您匹配</Text>
           <Text className='pc-list-caption'>按可预约状态和评分排序</Text>
         </View>
@@ -268,7 +273,7 @@ export default function ElderlyCounselorListPage() {
               <View className='pc-counselor-card' key={counselor.id}>
                 <View className='pc-counselor-card__top'>
                   <View className='pc-match-chip'>
-                    <Text>评</Text>
+                    <AppIcon name='star' />
                     <Text>{counselor.rating || '暂无评分'}</Text>
                   </View>
                   <Text className={`pc-status-chip ${counselor.available ? 'pc-status-chip--online' : ''}`}>

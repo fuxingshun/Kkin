@@ -12,6 +12,7 @@ export interface ElderlySession {
   familyId: string;
   elderlyId: number;
   elderName: string;
+  wechatOpenid?: string;
 }
 
 const ELDERLY_SESSION_KEY = 'kin-elderly-session';
@@ -45,6 +46,10 @@ function normalizeElderName(value: unknown) {
   return DEFAULT_ELDER_NAME;
 }
 
+function normalizeText(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
 export function getElderlySession(): ElderlySession {
   const stored = Taro.getStorageSync(ELDERLY_SESSION_KEY) as Partial<ElderlySession> | undefined;
 
@@ -53,6 +58,7 @@ export function getElderlySession(): ElderlySession {
     familyId: normalizeFamilyId(stored?.familyId),
     elderlyId: normalizeElderlyId(stored?.elderlyId),
     elderName: normalizeElderName(stored?.elderName),
+    wechatOpenid: normalizeText(stored?.wechatOpenid),
   };
 }
 
@@ -63,6 +69,7 @@ export function saveElderlySession(session: Partial<ElderlySession>) {
     familyId: normalizeFamilyId(session.familyId ?? current.familyId),
     elderlyId: normalizeElderlyId(session.elderlyId ?? current.elderlyId),
     elderName: normalizeElderName(session.elderName ?? current.elderName),
+    wechatOpenid: normalizeText(session.wechatOpenid ?? current.wechatOpenid),
   };
 
   Taro.setStorageSync(ELDERLY_SESSION_KEY, next);
@@ -71,4 +78,10 @@ export function saveElderlySession(session: Partial<ElderlySession>) {
 
 export function clearElderlySession() {
   Taro.removeStorageSync(ELDERLY_SESSION_KEY);
+}
+
+export function getElderlyChatUsername(session = getElderlySession()) {
+  const familyPart = session.familyId || 'family';
+  const elderlyPart = session.elderlyId || session.wechatOpenid || 'pending';
+  return `elderly:${familyPart}:${elderlyPart}`;
 }

@@ -314,6 +314,23 @@ public class KinEchoMapper {
             """.formatted(id, varchar32, text, varchar64, varchar64, varchar32, varchar191, varchar191, text, text, integer, varchar64, varchar64, varchar64));
 
         jdbc.execute("""
+            CREATE TABLE IF NOT EXISTS service_certifications (
+                id %s,
+                wechat_openid %s NOT NULL,
+                name %s NOT NULL,
+                phone %s NOT NULL,
+                staff_no %s NOT NULL,
+                organization %s NOT NULL,
+                status %s DEFAULT 'pending',
+                reject_reason %s,
+                reviewer %s,
+                reviewed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """.formatted(id, varchar191, text, varchar64, varchar64, text, varchar32, text, varchar64));
+
+        jdbc.execute("""
             CREATE TABLE IF NOT EXISTS ai_interactions (
                 id %s,
                 username %s NOT NULL DEFAULT 'User',
@@ -1162,6 +1179,7 @@ public class KinEchoMapper {
         createIndex("idx_users_family_active", "users", "family_id, is_active, user_type");
         createIndex("idx_users_binding_code", "users", "binding_code");
         createIndex("idx_users_wechat_openid", "users", "wechat_openid");
+        createIndex("idx_service_cert_openid", "service_certifications", "wechat_openid, status");
         createIndex("idx_mood_records_family_id", "mood_records", "family_id");
         createIndex("idx_mood_records_elderly_id", "mood_records", "elderly_id");
         createIndex("idx_mood_records_recorded_at", "mood_records", "recorded_at DESC");

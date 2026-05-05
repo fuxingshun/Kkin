@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Image, Text, View } from '@tarojs/components';
+import { AppIcon, type AppIconName } from '@/components/AppIcon';
 import { ElderlyTabBar } from '@/components/ElderlyTabBar';
 import {
   getElderlyCareInsight,
@@ -35,12 +36,12 @@ function formatTime(value?: string) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-function getScheduleMark(type?: Schedule['schedule_type']) {
-  if (type === 'medication') return '药';
-  if (type === 'exercise') return '动';
-  if (type === 'meal') return '水';
-  if (type === 'checkup') return '查';
-  return '提';
+function getScheduleIcon(type?: Schedule['schedule_type']): AppIconName {
+  if (type === 'medication') return 'shield';
+  if (type === 'exercise') return 'heart';
+  if (type === 'meal') return 'clock';
+  if (type === 'checkup') return 'check';
+  return 'bell';
 }
 
 function getGreetingName(users: FamilyUser[]) {
@@ -64,7 +65,7 @@ function getDailyRandomIndex(length: number, elderlyId: number) {
 }
 export default function ElderlyHomePage() {
   const preferenceClassName = useElderlyPreferenceClassNames();
-  const { familyId, elderlyId, elderName } = getElderlySession();
+  const { familyId, elderlyId, elderName, wechatOpenid } = getElderlySession();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<FamilyUser[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -74,6 +75,11 @@ export default function ElderlyHomePage() {
   const [moodLabel, setMoodLabel] = useState('未记录');
 
   const loadData = useCallback(async () => {
+    if (!wechatOpenid) {
+      void Taro.redirectTo({ url: '/pages/role/index' });
+      return;
+    }
+
     try {
       setLoading(true);
       const [nextUsers, todaySchedules, pendingMessages, recommendedMedia, latestMood, nextInsight] = await Promise.all([
@@ -98,7 +104,7 @@ export default function ElderlyHomePage() {
       setLoading(false);
       Taro.stopPullDownRefresh();
     }
-  }, [elderlyId, familyId]);
+  }, [elderlyId, familyId, wechatOpenid]);
 
   useDidShow(() => {
     void loadData();
@@ -155,18 +161,18 @@ export default function ElderlyHomePage() {
             className='ef-icon-button ef-icon-button--glass'
             onClick={() => Taro.navigateTo({ url: '/pages/elderly/reminders/index' })}
           >
-            铃
+            <AppIcon name='bell' />
           </Button>
         </View>
         <View className='ef-home-status'>
-          <Text className='ef-home-status__icon'>时</Text>
+          <AppIcon name='clock' className='ef-home-status__icon' />
           <Text>{loading ? '正在同步今日数据' : `今日 ${visibleSchedules.length} 项待办 · 情绪${moodLabel}`}</Text>
         </View>
       </View>
 
       <View className={`ef-greeting-card ef-care-insight ef-care-insight--${careInsight?.risk_level || 'low'}`}>
         <View className='ef-round-icon ef-round-icon--green'>
-          <Text>护</Text>
+          <AppIcon name='shield' />
         </View>
         <View className='ef-greeting-card__body'>
           <Text className='ef-card-title'>今日守护 · {careInsight?.status_label || '正在同步'}</Text>
@@ -194,7 +200,7 @@ export default function ElderlyHomePage() {
               return (
                 <View className={`ef-reminder ${done ? 'ef-reminder--done' : ''}`} key={item.id || item.title}>
                   <View className={`ef-reminder__icon ${done ? 'ef-reminder__icon--done' : ''}`}>
-                    <Text>{getScheduleMark(item.schedule_type)}</Text>
+                    <AppIcon name={getScheduleIcon(item.schedule_type)} />
                   </View>
                   <View className='ef-reminder__body'>
                     <View className='ef-inline'>
@@ -209,7 +215,7 @@ export default function ElderlyHomePage() {
             })
           ) : (
             <View className='ef-reminder'>
-              <View className='ef-reminder__icon'><Text>✓</Text></View>
+              <View className='ef-reminder__icon'><AppIcon name='check' /></View>
               <View className='ef-reminder__body'>
                 <Text className='ef-card-title'>暂无待办任务</Text>
                 <Text className='ef-card-text'>家属端新增护理计划后会同步显示</Text>
@@ -221,7 +227,7 @@ export default function ElderlyHomePage() {
 
       <View className='ef-greeting-card'>
         <View className='ef-round-icon ef-round-icon--warm'>
-          <Text>♡</Text>
+          <AppIcon name='heart' />
         </View>
         <View className='ef-greeting-card__body'>
           <Text className='ef-card-title'>家属关怀</Text>
@@ -256,7 +262,7 @@ export default function ElderlyHomePage() {
               />
             ) : (
               <View className='ef-round-icon ef-round-icon--blue'>
-                <Text>♡</Text>
+                <AppIcon name='image' />
               </View>
             )}
             <Text className='ef-memory-cover__hint'>点击查看今日回忆</Text>
@@ -269,13 +275,13 @@ export default function ElderlyHomePage() {
         <View className='ef-quick-grid'>
           <View className='ef-quick-card' onClick={() => Taro.navigateTo({ url: '/pages/elderly/help/index' })}>
             <View className='ef-round-icon ef-round-icon--primary'>
-              <Text>电</Text>
+              <AppIcon name='phone' />
             </View>
             <Text>联系家人</Text>
           </View>
           <View className='ef-quick-card' onClick={() => Taro.navigateTo({ url: '/pages/elderly/mental-screening/index' })}>
             <View className='ef-round-icon ef-round-icon--warm'>
-              <Text>心</Text>
+              <AppIcon name='heart' />
             </View>
             <Text>心理检测</Text>
           </View>
@@ -284,13 +290,13 @@ export default function ElderlyHomePage() {
 
       <View className='ef-record-entry' onClick={() => Taro.redirectTo({ url: '/pages/elderly/record/index' })}>
         <View className='ef-round-icon ef-round-icon--record'>
-          <Text>记</Text>
+          <AppIcon name='text' />
         </View>
         <View className='ef-record-entry__body'>
           <Text className='ef-record-entry__title'>今日记录</Text>
           <Text className='ef-record-entry__desc'>记录情绪、睡眠、饮食等健康数据</Text>
         </View>
-        <Text className='ef-record-entry__trend'>↗</Text>
+        <AppIcon name='chevron-right' className='ef-record-entry__trend' />
       </View>
 
       <ElderlyTabBar active='home' />
