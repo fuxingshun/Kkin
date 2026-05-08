@@ -4,6 +4,7 @@ This is the Java/Spring Boot implementation of the KinEcho backend. It serves th
 
 - API base: `http://127.0.0.1:8000/api`
 - Health check: `GET /api/health`
+- OpenAPI docs: `GET /v3/api-docs`, Swagger UI: `/swagger-ui.html` when `KINECHO_OPENAPI_ENABLED=true`
 - Upload files: `server/uploads`
 - Database: MySQL
 - Backend layers: `controller -> service -> mapper`
@@ -72,7 +73,8 @@ Successful login responses include a signed `session_token`. Send it with `X-Kin
 
 Set `KINECHO_FAMILY_SCOPE_SESSION_REQUIRED=true` for pilot or production deployments so family-scoped requests with `family_id` require a valid session and reject cross-family access.
 Set `KINECHO_PHONE_SUFFIX_LOGIN_ENABLED=false` to disable phone-number suffix demo login before a closed pilot.
-Family media uploads are no longer exposed through a broad `/uploads/**` static mapping. API responses return controlled `/api/family/media/{id}/file` and `/thumbnail` URLs. AI TTS playback audio now uses short-lived `/api/ai/audio/{filename}?token=...` signed URLs; ASR voice upload temporary files still use the dedicated `/uploads/ai-voice/**` path so the Bailian transcription service can fetch them.
+Family media uploads are no longer exposed through a broad `/uploads/**` static mapping. API responses return controlled `/api/family/media/{id}/file` and `/thumbnail` URLs. AI TTS playback audio uses short-lived `/api/ai/audio/{filename}?token=...` signed URLs; ASR voice upload temporary files use short-lived `/api/ai/voice-upload/{filename}?token=...` signed URLs for the Bailian transcription fetch path.
+Psychology video proxying rejects localhost/private-network sources. In production, set `KINECHO_PSYCHOLOGY_VIDEO_ALLOWED_HOSTS` to the trusted video CDN or media host list.
 When AI companion text or voice transcripts contain high-risk self-harm keywords, the API skips normal chat, creates a high-priority `ai_crisis` family alert, writes a care audit entry, and returns `crisis_detected` with a safety response for the mini program.
 Privacy compliance now has `consent_records` and `privacy_requests`: clients can record policy/screening consent, export a family-scoped data package, and submit export, deletion, or correction requests. These actions are also written into care audit logs.
 

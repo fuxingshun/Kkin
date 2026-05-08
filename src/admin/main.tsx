@@ -15,6 +15,7 @@ import {
   LayoutDashboard,
   Menu,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   Shield,
@@ -43,6 +44,7 @@ import {
   getAdminFamilies,
   getAdminAnalytics,
   getAdminCounselors,
+  getAdminOpsMetrics,
   getAdminServiceSummary,
   getAlertStats,
   getAlerts,
@@ -67,6 +69,8 @@ import {
   type ApiAlert,
   type ApiAdminAnalytics,
   type ApiAdminFamily,
+  type ApiAdminOpsMetric,
+  type ApiAdminOpsMetrics,
   type ApiAdminServiceSummary,
   type ApiCareInsight,
   type ApiCounselor,
@@ -210,6 +214,30 @@ function getPrivacyRequestStatusLabel(status: string) {
     processing: '处理中',
     completed: '已完成',
     rejected: '已拒绝',
+  };
+
+  return labels[status] || status;
+}
+
+const OPS_METRIC_LABELS: Record<string, string> = {
+  open_alerts: '未处理风险',
+  unread_alerts: '未读提醒',
+  pending_privacy_requests: '隐私请求',
+  pending_service_certifications: '认证审核',
+  active_auth_accounts: '活跃账号',
+  locked_auth_accounts: '锁定账号',
+};
+
+const OPS_METRIC_KEYS = Object.keys(OPS_METRIC_LABELS);
+
+function getOpsMetricLabel(name: string) {
+  return OPS_METRIC_LABELS[name] || name;
+}
+
+function getOpsStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    ok: '正常',
+    degraded: '降级',
   };
 
   return labels[status] || status;
@@ -1782,6 +1810,9 @@ function AnalyticsPageLive({ notify, selectedFamilyId }: { notify: Notify; selec
 
 function SettingsPage({ notify, selectedFamilyId }: { notify: Notify; selectedFamilyId: string }) {
   const [health, setHealth] = useState<string>('未同步');
+  const [opsMetrics, setOpsMetrics] = useState<ApiAdminOpsMetrics | null>(null);
+  const [opsMetricsError, setOpsMetricsError] = useState<string>('');
+  const opsMetricsRequestId = useRef(0);
   const [privacyRequests, setPrivacyRequests] = useState<ApiPrivacyRequest[]>([]);
   const sections = [
     { icon: Settings, title: '基础配置', desc: '系统基础参数设置', items: ['平台名称', '联系方式', '服务协议'] },
@@ -1813,6 +1844,41 @@ function SettingsPage({ notify, selectedFamilyId }: { notify: Notify; selectedFa
   }, [notify, selectedFamilyId]);
 
   useEffect(() => loadPrivacyRequests(), [loadPrivacyRequests]);
+
+  const loadOpsMetrics = useCallback((announce = false) => {
+    const requestId = opsMetricsRequestId.current + 1;
+    opsMetricsRequestId.current = requestId;
+
+    async function load() {
+      try {
+        const metrics = await getAdminOpsMetrics();
+        if (requestId === opsMetricsRequestId.current) {
+          setOpsMetrics(metrics);
+          setOpsMetricsError('');
+          if (announce) {
+            notify('运维指标已同步', `当前状态：${getOpsStatusLabel(metrics.status)}。`);
+          }
+        }
+      } catch (error) {
+        if (requestId === opsMetricsRequestId.current) {
+          const message = error instanceof Error ? error.message : '请确认 Java 后端已启动。';
+          setOpsMetricsError(message);
+          if (announce) {
+            notify('运维指标同步失败', message);
+          }
+        }
+      }
+    }
+
+    void load();
+  }, [notify]);
+
+  useEffect(() => {
+    loadOpsMetrics(false);
+    return () => {
+      opsMetricsRequestId.current += 1;
+    };
+  }, [loadOpsMetrics]);
 
   async function handleSettingItem(sectionTitle: string, item: string) {
     try {
@@ -1879,9 +1945,45 @@ function SettingsPage({ notify, selectedFamilyId }: { notify: Notify; selectedFa
     }
   }
 
+  const opsStatus = opsMetrics?.status || (opsMetricsError ? 'degraded' : 'pending');
+  const opsMetricsRows: Array<ApiAdminOpsMetric | undefined> = OPS_METRIC_KEYS.map((key) => opsMetrics?.metrics?.[key]);
+
   return (
     <div className="admin-page-stack admin-page-stack--narrow">
       <PageHeader title="系统设置" desc={`配置系统参数和权限 · 后端 ${health}`} />
+      <article className={`admin-panel admin-ops-panel admin-ops-panel--${opsStatus}`}>
+        <div className="admin-panel__head">
+          <div>
+            <h2>运维指标总览</h2>
+            <p>
+              {opsMetrics
+                ? `状态 ${getOpsStatusLabel(opsMetrics.status)} · ${formatAdminTime(opsMetrics.generated_at)}`
+                : opsMetricsError || '正在同步后台运维指标'}
+            </p>
+          </div>
+          <div className="admin-inline-actions">
+            <span className={opsStatus === 'ok' ? 'admin-badge admin-badge--low' : 'admin-badge admin-badge--medium'}>
+              {getOpsStatusLabel(opsStatus)}
+            </span>
+            <button className="admin-secondary" type="button" onClick={() => loadOpsMetrics(true)}>
+              <RefreshCw size={14} />刷新
+            </button>
+          </div>
+        </div>
+        <div className="admin-ops-grid">
+          {OPS_METRIC_KEYS.map((key, index) => {
+            const metric = opsMetricsRows[index];
+            const critical = metric?.level === 'critical';
+            return (
+              <div className={critical ? 'admin-ops-metric admin-ops-metric--critical' : 'admin-ops-metric'} key={key}>
+                <span>{getOpsMetricLabel(key)}</span>
+                <strong>{metric ? (metric.value >= 0 ? metric.value : '异常') : '--'}</strong>
+                <small>{critical ? metric?.message || '采集失败' : '实时计数'}</small>
+              </div>
+            );
+          })}
+        </div>
+      </article>
       <article className="admin-panel">
         <div className="admin-panel__head">
           <div>

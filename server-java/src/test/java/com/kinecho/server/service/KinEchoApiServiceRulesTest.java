@@ -3,6 +3,7 @@ package com.kinecho.server.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kinecho.server.config.KinEchoProperties;
 import com.kinecho.server.mapper.KinEchoMapper;
+import com.kinecho.server.security.PasswordHasher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,6 +60,29 @@ class KinEchoApiServiceRulesTest {
         properties.setZoneId("Asia/Shanghai");
         db = spy(new KinEchoMapper(jdbc, properties, new ObjectMapper()));
         service = new KinEchoApiService(db, properties, aiCompanion, toastService, new ObjectMapper());
+    }
+
+    private String adminSession() {
+        return adminSessionWithPermissions(List.of("admin:*"));
+    }
+
+    private String adminSessionWithPermissions(List<String> permissions) {
+        return SessionTokenCodec.create(db.map(
+            "role", "admin",
+            "user_id", 1L,
+            "username", "admin",
+            "display_name", "admin",
+            "permissions", permissions
+        ), properties, new ObjectMapper());
+    }
+
+    private String familySession() {
+        return SessionTokenCodec.create(db.map(
+            "role", "family",
+            "user_id", 9L,
+            "family_id", "family_001",
+            "display_name", "family"
+        ), properties, new ObjectMapper());
     }
 
     @Test
@@ -488,6 +512,11 @@ class KinEchoApiServiceRulesTest {
 
     @Test
     void loginReturnsSessionTokenAndMeReadsCurrentUser() {
+        doReturn(Optional.empty()).when(db).one(
+            contains("FROM auth_accounts"),
+            eq("elderly"),
+            eq("elderly user")
+        );
         doReturn(Optional.of(Map.of(
             "id", 7L,
             "user_type", "elderly",
@@ -644,6 +673,11 @@ class KinEchoApiServiceRulesTest {
 
     @Test
     void loginAllowsElderlyUserWithPhoneSuffixPassword() {
+        doReturn(Optional.empty()).when(db).one(
+            contains("FROM auth_accounts"),
+            eq("elderly"),
+            eq("13800138000")
+        );
         doReturn(Optional.of(Map.of(
             "id", 5L,
             "user_type", "elderly",
@@ -673,6 +707,11 @@ class KinEchoApiServiceRulesTest {
     @Test
     void loginRejectsPhoneSuffixPasswordWhenDisabled() {
         properties.phoneSuffixLoginEnabled = false;
+        doReturn(Optional.empty()).when(db).one(
+            contains("FROM auth_accounts"),
+            eq("elderly"),
+            eq("13800138000")
+        );
         doReturn(Optional.of(Map.of(
             "id", 5L,
             "user_type", "elderly",
@@ -694,6 +733,219 @@ class KinEchoApiServiceRulesTest {
         ));
 
         assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
+    }
+
+    @Test
+    void loginAllowsFamilyUserWithDatabasePasswordHash() {
+        String passwordHash = PasswordHasher.hash("family-strong-password");
+        doReturn(Optional.of(db.map(
+            "id", 31L,
+            "role", "family",
+            "username", "daughter",
+            "display_name", "family daughter",
+            "password_hash", passwordHash,
+            "permissions", "[\"family:read\",\"family:write\"]",
+            "user_id", 9L,
+            "family_id", "family_001",
+            "disabled", 0,
+            "failed_login_count", 0
+        ))).when(db).one(
+            contains("FROM auth_accounts"),
+            eq("family"),
+            eq("daughter")
+        );
+        doReturn(Optional.of(Map.of(
+            "id", 9L,
+            "user_type", "family",
+            "name", "family daughter",
+            "phone", "13900000000",
+            "family_id", "family_001",
+            "binding_code", ""
+        ))).when(db).one(
+            contains("WHERE id = ? AND user_type = ? AND is_active = 1"),
+            eq(9L),
+            eq("family")
+        );
+        doReturn(Optional.of(Map.of(
+            "id", 5L,
+            "name", "elderly account"
+        ))).when(db).one(
+            contains("WHERE family_id = ? AND user_type = 'elderly'"),
+            eq("family_001")
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.login(Map.of(
+            "role", "family",
+            "username", "daughter",
+            "password", "family-strong-password"
+        ));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("family", response.getBody().get("role"));
+        assertEquals(9L, ((Number) response.getBody().get("family_user_id")).longValue());
+        assertEquals(List.of("family:read", "family:write"), response.getBody().get("permissions"));
+        assertTrue(response.getBody().containsKey("session_token"));
+        verify(db).update(contains("SET failed_login_count = 0"), eq(31L));
+    }
+
+    @Test
+    void loginRecordsFailedDatabasePasswordForElderlyUser() {
+        doReturn(Optional.of(db.map(
+            "id", 41L,
+            "role", "elderly",
+            "username", "grandpa",
+            "display_name", "elderly account",
+            "password_hash", PasswordHasher.hash("correct-password"),
+            "permissions", "[\"elderly:read\"]",
+            "user_id", 5L,
+            "family_id", "family_001",
+            "disabled", 0,
+            "failed_login_count", 4
+        ))).when(db).one(
+            contains("FROM auth_accounts"),
+            eq("elderly"),
+            eq("grandpa")
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.login(Map.of(
+            "role", "elderly",
+            "username", "grandpa",
+            "password", "wrong-password"
+        ));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
+        verify(db).update(contains("SET failed_login_count = ?"), eq(5), any(), eq(41L));
+    }
+
+    @Test
+    void serviceErrorsUseStructuredEnvelope() {
+        ResponseEntity<Map<String, Object>> response = service.login(Map.of(
+            "role", "admin"
+        ));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("bad_request", response.getBody().get("code"));
+        assertEquals("missing required fields", response.getBody().get("message"));
+        assertEquals("missing required fields", response.getBody().get("error"));
+        assertFalse(String.valueOf(response.getBody().get("request_id")).isBlank());
+    }
+
+    @Test
+    void adminAuthAccountsCanBeListedWithoutPasswordHashes() {
+        doReturn(List.of(db.map(
+            "id", 31L,
+            "role", "family",
+            "username", "daughter",
+            "display_name", "family daughter",
+            "permissions", "[\"family:read\"]",
+            "user_id", 9L,
+            "family_id", "family_001",
+            "disabled", 0
+        ))).when(db).list(
+            contains("FROM auth_accounts"),
+            eq("family"),
+            eq("family_001"),
+            eq(20)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.getAdminAuthAccounts("family", "family_001", "active", 20, adminSession(), null);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        List<?> accounts = (List<?>) response.getBody().get("accounts");
+        assertEquals(1, accounts.size());
+        Map<?, ?> account = (Map<?, ?>) accounts.get(0);
+        assertEquals("daughter", account.get("username"));
+        assertFalse(account.containsKey("password_hash"));
+    }
+
+    @Test
+    void adminCanCreateFamilyAuthAccountBoundToActiveUser() {
+        doReturn(Optional.of(Map.of(
+            "id", 9L,
+            "family_id", "family_001"
+        ))).when(db).one(
+            contains("FROM users"),
+            eq(9L),
+            eq("family")
+        );
+        doReturn(31L).when(db).insert(
+            contains("INSERT INTO auth_accounts"),
+            eq("family"),
+            eq("daughter"),
+            eq("family daughter"),
+            any(),
+            eq("[\"family:read\"]"),
+            eq(9L),
+            eq("org_1"),
+            eq("family_001"),
+            eq(0),
+            eq("admin"),
+            eq("admin")
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.createAdminAuthAccount(Map.of(
+            "role", "family",
+            "username", "daughter",
+            "password", "family-strong-password",
+            "display_name", "family daughter",
+            "permissions", List.of("family:read"),
+            "user_id", 9L,
+            "organization_id", "org_1",
+            "operator", "admin"
+        ), adminSession(), null);
+
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        assertEquals(31L, ((Number) response.getBody().get("account_id")).longValue());
+        assertEquals("family_001", response.getBody().get("family_id"));
+    }
+
+    @Test
+    void adminPasswordRotationRequiresConfirmation() {
+        doReturn(Optional.of(db.map(
+            "id", 31L,
+            "role", "family",
+            "username", "daughter",
+            "family_id", "family_001"
+        ))).when(db).one(
+            contains("FROM auth_accounts"),
+            eq(31L)
+        );
+
+        ResponseEntity<Map<String, Object>> rejected = service.updateAdminAuthAccount(31L, Map.of(
+            "password", "new-strong-password"
+        ), adminSession(), null);
+
+        assertEquals(HttpStatus.BAD_REQUEST, rejected.getStatusCode());
+
+        ResponseEntity<Map<String, Object>> updated = service.updateAdminAuthAccount(31L, Map.of(
+            "password", "new-strong-password",
+            "confirmed", true,
+            "operator", "security-admin"
+        ), adminSession(), null);
+
+        assertEquals(HttpStatus.OK, updated.getStatusCode());
+        verify(db).update(contains("password_hash = ?"), any(), eq("security-admin"), eq(31L));
+    }
+
+    @Test
+    void adminAuthAccountsRejectNonAdminSession() {
+        ResponseEntity<Map<String, Object>> response = service.getAdminAuthAccounts("family", "", "", 20, familySession(), null);
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+    }
+
+    @Test
+    void adminAuthAccountsRequireAuthPermission() {
+        ResponseEntity<Map<String, Object>> response = service.getAdminAuthAccounts(
+            "family",
+            "",
+            "",
+            20,
+            adminSessionWithPermissions(List.of("admin:privacy")),
+            null
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
     }
 
     @Test
@@ -928,6 +1180,38 @@ class KinEchoApiServiceRulesTest {
     }
 
     @Test
+    void downloadAiVoiceUploadServesOnlySignedTemporaryFile(@TempDir Path tempDir) throws Exception {
+        properties.aiVoiceUploadDir = tempDir.resolve("server/uploads/ai-voice");
+        properties.aiVoiceUploadUrlTtlSeconds = 90;
+        Files.createDirectories(properties.aiVoiceUploadDir);
+        Path voiceFile = properties.aiVoiceUploadDir.resolve("voice-123.wav");
+        Files.writeString(voiceFile, "voice-bytes");
+        String token = SessionTokenCodec.createSignedPayload(
+            Map.of("purpose", "ai_voice_upload", "file", "voice-123.wav"),
+            properties.aiVoiceUploadUrlTtlSeconds,
+            properties,
+            new ObjectMapper()
+        );
+
+        ResponseEntity<?> response = service.downloadAiVoiceUpload("voice-123.wav", token);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody() instanceof FileSystemResource);
+        assertEquals("private, max-age=90", response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
+    }
+
+    @Test
+    void downloadAiVoiceUploadRejectsInvalidToken(@TempDir Path tempDir) throws Exception {
+        properties.aiVoiceUploadDir = tempDir.resolve("server/uploads/ai-voice");
+        Files.createDirectories(properties.aiVoiceUploadDir);
+        Files.writeString(properties.aiVoiceUploadDir.resolve("voice-123.wav"), "voice-bytes");
+
+        ResponseEntity<?> response = service.downloadAiVoiceUpload("voice-123.wav", "invalid-token");
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+    }
+
+    @Test
     void aiChatEscalatesCrisisSignalToFamilyAlert() {
         doReturn(77L).when(db).insert(
             contains("INSERT INTO family_alerts"),
@@ -1135,6 +1419,48 @@ class KinEchoApiServiceRulesTest {
         assertEquals(120, policy.get("ai_chat_retention_days"));
         assertEquals(720, policy.get("consultation_retention_days"));
         assertEquals(366, policy.get("audit_log_retention_days"));
+    }
+
+    @Test
+    void healthReportsGradedComponents(@TempDir Path tempDir) throws Exception {
+        properties.uploadDir = tempDir.resolve("uploads");
+        properties.aiAudioDir = tempDir.resolve("ai-audio");
+        properties.aiVoiceUploadDir = tempDir.resolve("ai-voice");
+        Files.createDirectories(properties.uploadDir);
+        Files.createDirectories(properties.aiAudioDir);
+        Files.createDirectories(properties.aiVoiceUploadDir);
+        properties.apiTokenEnabled = true;
+        properties.familyScopeSessionRequired = true;
+        properties.phoneSuffixLoginEnabled = false;
+        doReturn(1L).when(db).count("SELECT 1");
+
+        ResponseEntity<Map<String, Object>> response = service.health();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("ok", response.getBody().get("status"));
+        Map<?, ?> components = (Map<?, ?>) response.getBody().get("components");
+        assertTrue(components.containsKey("database"));
+        assertTrue(components.containsKey("security_config"));
+        assertTrue(response.getBody().containsKey("checks"));
+    }
+
+    @Test
+    void adminOpsMetricsExposeOperationalCounts() {
+        doReturn(2L).when(db).count("SELECT COUNT(*) FROM family_alerts WHERE handled = 0");
+        doReturn(3L).when(db).count("SELECT COUNT(*) FROM family_alerts WHERE read = 0");
+        doReturn(1L).when(db).count("SELECT COUNT(*) FROM privacy_requests WHERE status = 'pending'");
+        doReturn(4L).when(db).count("SELECT COUNT(*) FROM service_certifications WHERE status = 'pending'");
+        doReturn(9L).when(db).count("SELECT COUNT(*) FROM auth_accounts WHERE disabled = 0");
+        doReturn(1L).when(db).count("SELECT COUNT(*) FROM auth_accounts WHERE locked_until IS NOT NULL AND locked_until > CURRENT_TIMESTAMP");
+
+        ResponseEntity<Map<String, Object>> response = service.getAdminOpsMetrics();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("ok", response.getBody().get("status"));
+        Map<?, ?> metrics = (Map<?, ?>) response.getBody().get("metrics");
+        Map<?, ?> openAlerts = (Map<?, ?>) metrics.get("open_alerts");
+        assertEquals(2L, openAlerts.get("value"));
+        assertTrue(metrics.containsKey("locked_auth_accounts"));
     }
 
     @Test

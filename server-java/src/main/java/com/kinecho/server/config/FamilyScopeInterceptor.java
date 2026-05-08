@@ -37,7 +37,7 @@ public class FamilyScopeInterceptor implements HandlerInterceptor {
         String token = SessionTokenCodec.extract(request, properties);
         if (token.isBlank()) {
             if (properties.familyScopeSessionRequired) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "session token is required");
+                ErrorResponseWriter.write(response, mapper, HttpServletResponse.SC_UNAUTHORIZED, "session_required", "session token is required");
                 return false;
             }
             return true;
@@ -45,7 +45,7 @@ public class FamilyScopeInterceptor implements HandlerInterceptor {
 
         Map<String, Object> session = SessionTokenCodec.verify(token, properties, mapper);
         if (session == null) {
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid session token");
+            ErrorResponseWriter.write(response, mapper, HttpServletResponse.SC_UNAUTHORIZED, "invalid_session", "invalid session token");
             return false;
         }
 
@@ -55,7 +55,7 @@ public class FamilyScopeInterceptor implements HandlerInterceptor {
 
         String sessionFamilyId = String.valueOf(session.getOrDefault("family_id", "")).trim();
         if (!requestedFamilyId.equals(sessionFamilyId)) {
-            response.sendError(HttpServletResponse.SC_FORBIDDEN, "family scope mismatch");
+            ErrorResponseWriter.write(response, mapper, HttpServletResponse.SC_FORBIDDEN, "family_scope_mismatch", "family scope mismatch");
             return false;
         }
 

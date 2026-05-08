@@ -1,0 +1,7 @@
+{
+  "name": "postcss-url",
+  "version": "99.0.0-kinecho.0",
+  "description": "KinEcho build wrapper that disables postcss-url asset transforms when no CSS url() assets are used.",
+  "main": "index.js",
+  "license": "MIT"
+}

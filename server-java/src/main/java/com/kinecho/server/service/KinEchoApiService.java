@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.kinecho.server.config.KinEchoProperties;
 import com.kinecho.server.mapper.KinEchoMapper;
+import com.kinecho.server.security.PasswordHasher;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -36,6 +37,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -56,6 +58,7 @@ import java.util.UUID;
 @Service
 public class KinEchoApiService {
     private static final DateTimeFormatter DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final Set<String> AUTH_ACCOUNT_ROLES = Set.of("admin", "service", "counselor", "family", "elderly");
     private final KinEchoMapper db;
     private final KinEchoProperties properties;
     private final AiCompanionService aiCompanion;
@@ -85,8 +88,8 @@ public class KinEchoApiService {
         return switch (role) {
             case "elderly" -> loginUser("elderly", username, password);
             case "family" -> loginUser("family", username, password);
-            case "service" -> loginOperator("service", username, password, properties.serviceUsername, properties.servicePassword, properties.serviceDisplayName);
-            case "admin" -> loginOperator("admin", username, password, properties.adminUsername, properties.adminPassword, properties.adminDisplayName);
+            case "service" -> loginOperator("service", username, password);
+            case "admin" -> loginOperator("admin", username, password);
             default -> bad("invalid role");
         };
     }
@@ -115,6 +118,15 @@ public class KinEchoApiService {
         if (!blank(familyId)) {
             user.put("family_id", familyId);
         }
+        if (payload.containsKey("family_ids")) {
+            user.put("family_ids", payload.get("family_ids"));
+        }
+        if (payload.containsKey("organization_id")) {
+            user.put("organization_id", payload.get("organization_id"));
+        }
+        if (payload.containsKey("permissions")) {
+            user.put("permissions", payload.get("permissions"));
+        }
         if (payload.containsKey("elderly_id")) {
             user.put("elderly_id", payload.get("elderly_id"));
             user.put("elderly_name", payload.get("elderly_name"));
@@ -129,6 +141,9 @@ public class KinEchoApiService {
             "role", role,
             "user", user,
             "family_id", familyId,
+            "family_ids", payload.get("family_ids"),
+            "organization_id", payload.get("organization_id"),
+            "permissions", payload.get("permissions"),
             "elderly_id", payload.get("elderly_id"),
             "elderly_bound", payload.containsKey("elderly_id"),
             "session_expires_at", payload.get("exp")
@@ -1182,6 +1197,216 @@ public class KinEchoApiService {
         return ok(db.map("success", true, "request_id", requestId, "status", status, "reviewer", reviewer, "process_note", processNote));
     }
 
+    public ResponseEntity<Map<String, Object>> getAdminAuthAccounts(String role,
+                                                                    String familyId,
+                                                                    String status,
+                                                                    int limit,
+                                                                    String sessionToken,
+                                                                    String authorization) {
+        ResponseEntity<Map<String, Object>> guard = requireAdminSession(sessionToken, authorization, "admin:auth");
+        if (guard != null) {
+            return guard;
+        }
+        String normalizedRole = db.string(role).trim().toLowerCase(Locale.ROOT);
+        if (!blank(normalizedRole) && !AUTH_ACCOUNT_ROLES.contains(normalizedRole)) {
+            return bad("invalid role");
+        }
+        String normalizedStatus = db.string(status).trim().toLowerCase(Locale.ROOT);
+        if (!blank(normalizedStatus) && !List.of("active", "disabled", "locked").contains(normalizedStatus)) {
+            return bad("status must be active, disabled or locked");
+        }
+        int safeLimit = Math.max(1, Math.min(limit, 500));
+        StringBuilder sql = new StringBuilder("""
+            SELECT id, role, username, display_name, permissions, user_id, organization_id, family_id,
+                   disabled, failed_login_count, session_version, locked_until, last_login_at, created_by, updated_by, created_at, updated_at
+            FROM auth_accounts
+            WHERE 1 = 1
+            """);
+        List<Object> args = new ArrayList<>();
+        if (!blank(normalizedRole)) {
+            sql.append(" AND role = ?");
+            args.add(normalizedRole);
+        }
+        String normalizedFamilyId = db.string(familyId).trim();
+        if (!blank(normalizedFamilyId)) {
+            sql.append(" AND family_id = ?");
+            args.add(normalizedFamilyId);
+        }
+        if ("active".equals(normalizedStatus)) {
+            sql.append(" AND disabled = 0 AND (locked_until IS NULL OR locked_until <= CURRENT_TIMESTAMP)");
+        } else if ("disabled".equals(normalizedStatus)) {
+            sql.append(" AND disabled = 1");
+        } else if ("locked".equals(normalizedStatus)) {
+            sql.append(" AND locked_until IS NOT NULL AND locked_until > CURRENT_TIMESTAMP");
+        }
+        sql.append(" ORDER BY role, username LIMIT ?");
+        args.add(safeLimit);
+        List<Map<String, Object>> accounts = db.list(sql.toString(), args.toArray());
+        return ok(db.map("accounts", accounts, "role", normalizedRole, "family_id", normalizedFamilyId, "status", normalizedStatus, "limit", safeLimit, "total", accounts.size()));
+    }
+
+    public ResponseEntity<Map<String, Object>> createAdminAuthAccount(Map<String, Object> data, String sessionToken, String authorization) {
+        ResponseEntity<Map<String, Object>> guard = requireAdminSession(sessionToken, authorization, "admin:auth");
+        if (guard != null) {
+            return guard;
+        }
+        if (data == null) {
+            return bad("missing account data");
+        }
+        String role = db.string(data.get("role")).trim().toLowerCase(Locale.ROOT);
+        String username = db.string(data.get("username")).trim();
+        String password = db.string(data.get("password"));
+        if (!AUTH_ACCOUNT_ROLES.contains(role)) {
+            return bad("invalid role");
+        }
+        if (blank(username) || username.length() > 191) {
+            return bad("username is required");
+        }
+        if (!strongAccountPassword(password)) {
+            return bad("password must be at least 12 characters");
+        }
+
+        String displayName = db.string(value(data, "display_name", username)).trim();
+        String organizationId = db.string(value(data, "organization_id", "")).trim();
+        String familyId = db.string(value(data, "family_id", "")).trim();
+        long userId = db.longValue(value(data, "user_id", 0), 0);
+        if (List.of("elderly", "family").contains(role)) {
+            if (userId <= 0) {
+                return bad("user_id is required for elderly and family accounts");
+            }
+            Map<String, Object> user = db.one("""
+                SELECT id, family_id
+                FROM users
+                WHERE id = ? AND user_type = ? AND is_active = 1
+                LIMIT 1
+                """, userId, role).orElse(null);
+            if (user == null) {
+                return bad("bound user must be active and match role");
+            }
+            if (blank(familyId)) {
+                familyId = db.string(user.get("family_id"));
+            }
+        }
+
+        String operator = db.string(value(data, "operator", "admin")).trim();
+        if (blank(operator)) {
+            operator = "admin";
+        }
+        List<String> permissions = permissionsFromRequest(data.get("permissions"), role);
+        int disabled = db.boolValue(value(data, "disabled", false)) ? 1 : 0;
+        long accountId = db.insert("""
+            INSERT INTO auth_accounts (
+                role, username, display_name, password_hash, permissions, user_id, organization_id, family_id,
+                disabled, failed_login_count, created_by, updated_by
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            """,
+            role, username, displayName, PasswordHasher.hash(password), db.toJson(permissions), userId <= 0 ? null : userId,
+            organizationId, familyId, disabled, operator, operator);
+        auditAuthAction(accountId, role, username, "admin_account_created", true, "", familyId);
+        return created(db.map("success", true, "account_id", accountId, "role", role, "username", username, "family_id", familyId, "user_id", userId));
+    }
+
+    public ResponseEntity<Map<String, Object>> updateAdminAuthAccount(long accountId, Map<String, Object> data, String sessionToken, String authorization) {
+        ResponseEntity<Map<String, Object>> guard = requireAdminSession(sessionToken, authorization, "admin:auth");
+        if (guard != null) {
+            return guard;
+        }
+        if (accountId <= 0) {
+            return bad("invalid account id");
+        }
+        if (data == null || data.isEmpty()) {
+            return bad("missing account update data");
+        }
+        Map<String, Object> account = db.one("""
+            SELECT id, role, username, family_id
+            FROM auth_accounts
+            WHERE id = ?
+            LIMIT 1
+            """, accountId).orElse(null);
+        if (account == null) {
+            return notFound("auth account not found");
+        }
+
+        boolean updatesPassword = data.containsKey("password") && !blank(db.string(data.get("password")));
+        boolean updatesDisabled = data.containsKey("disabled");
+        boolean unlocksAccount = db.boolValue(value(data, "unlock", false));
+        if ((updatesPassword || updatesDisabled || unlocksAccount) && !confirmedAdminAction(data)) {
+            return bad("confirmation is required for password, disabled or unlock changes");
+        }
+
+        String role = db.string(account.get("role"));
+        List<String> sets = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        if (data.containsKey("display_name")) {
+            sets.add("display_name = ?");
+            args.add(db.string(data.get("display_name")).trim());
+        }
+        if (data.containsKey("permissions")) {
+            sets.add("permissions = ?");
+            args.add(db.toJson(permissionsFromRequest(data.get("permissions"), role)));
+        }
+        if (data.containsKey("organization_id")) {
+            sets.add("organization_id = ?");
+            args.add(db.string(data.get("organization_id")).trim());
+        }
+        if (data.containsKey("family_id")) {
+            sets.add("family_id = ?");
+            args.add(db.string(data.get("family_id")).trim());
+        }
+        if (data.containsKey("user_id")) {
+            long userId = db.longValue(data.get("user_id"), 0);
+            if (List.of("elderly", "family").contains(role) && userId <= 0) {
+                return bad("user_id is required for elderly and family accounts");
+            }
+            sets.add("user_id = ?");
+            args.add(userId <= 0 ? null : userId);
+        }
+        if (updatesDisabled) {
+            sets.add("disabled = ?");
+            args.add(db.boolValue(data.get("disabled")) ? 1 : 0);
+        }
+        if (updatesPassword) {
+            String password = db.string(data.get("password"));
+            if (!strongAccountPassword(password)) {
+                return bad("password must be at least 12 characters");
+            }
+            sets.add("password_hash = ?");
+            args.add(PasswordHasher.hash(password));
+            sets.add("failed_login_count = 0");
+            sets.add("locked_until = NULL");
+        }
+        if (unlocksAccount) {
+            sets.add("failed_login_count = 0");
+            sets.add("locked_until = NULL");
+        }
+        boolean affectsIssuedSessions = updatesPassword
+            || updatesDisabled
+            || unlocksAccount
+            || data.containsKey("permissions")
+            || data.containsKey("organization_id")
+            || data.containsKey("family_id")
+            || data.containsKey("user_id");
+        if (affectsIssuedSessions) {
+            sets.add("session_version = COALESCE(session_version, 1) + 1");
+        }
+        if (sets.isEmpty()) {
+            return bad("no supported account fields to update");
+        }
+
+        String operator = db.string(value(data, "operator", "admin")).trim();
+        if (blank(operator)) {
+            operator = "admin";
+        }
+        sets.add("updated_by = ?");
+        args.add(operator);
+        args.add(accountId);
+        db.update("UPDATE auth_accounts SET " + String.join(", ", sets) + ", updated_at = CURRENT_TIMESTAMP WHERE id = ?", args.toArray());
+        String familyId = db.string(value(data, "family_id", account.get("family_id")));
+        auditAuthAction(accountId, role, db.string(account.get("username")), "admin_account_updated", true, "", familyId);
+        return ok(db.map("success", true, "account_id", accountId, "role", role, "updated_by", operator));
+    }
+
     public ResponseEntity<Map<String, Object>> createLiveMentalScreening(MultipartFile frame,
                                                                          String familyId,
                                                                          Long elderlyId,
@@ -1196,8 +1421,9 @@ public class KinEchoApiService {
         if (elderlyId == null || elderlyId <= 0) {
             return bad("missing elderly_id");
         }
-        if (frame == null || frame.isEmpty() || frame.getOriginalFilename() == null || !allowedMentalFrame(frame.getOriginalFilename())) {
-            return bad("unsupported or empty frame");
+        UploadSecurityValidator.Result validation = UploadSecurityValidator.validate(frame, UploadSecurityValidator.Profile.MENTAL_FRAME);
+        if (!validation.accepted()) {
+            return bad(validation.message());
         }
 
         Map<String, Object> elderly = db.one("""
@@ -1213,10 +1439,10 @@ public class KinEchoApiService {
         try {
             Path dir = properties.uploadDir.resolve("mental-screenings");
             Files.createDirectories(dir);
-            String ext = extension(frame.getOriginalFilename());
+            String ext = validation.extension();
             String filename = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSSSSS").format(LocalDateTime.now(properties.zoneId))
                 + "-" + UUID.randomUUID().toString().substring(0, 8) + "." + ext;
-            Path target = dir.resolve(filename);
+            Path target = dir.resolve(filename).toAbsolutePath().normalize();
             frame.transferTo(target);
             String framePath = "mental-screenings/" + filename;
 
@@ -2969,14 +3195,20 @@ public class KinEchoApiService {
                                                            String description,
                                                            Long uploaded_by) {
         try {
-            if (file.isEmpty() || file.getOriginalFilename() == null || !allowedFile(file.getOriginalFilename())) {
-                return bad("unsupported or empty file");
+            UploadSecurityValidator.Result validation = UploadSecurityValidator.validate(file, UploadSecurityValidator.Profile.FAMILY_MEDIA);
+            if (!validation.accepted()) {
+                return bad(validation.message());
             }
             Files.createDirectories(properties.uploadDir);
             Files.createDirectories(properties.uploadDir.resolve("thumbnails"));
-            String ext = extension(file.getOriginalFilename());
-            String filename = java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSSSSS").format(LocalDateTime.now()) + "." + ext;
-            Path target = properties.uploadDir.resolve(filename);
+            String ext = validation.extension();
+            String filename = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSSSSS").format(LocalDateTime.now(properties.zoneId))
+                + "-" + UUID.randomUUID().toString().substring(0, 8) + "." + ext;
+            Path uploadRoot = properties.uploadDir.toAbsolutePath().normalize();
+            Path target = uploadRoot.resolve(filename).toAbsolutePath().normalize();
+            if (!target.startsWith(uploadRoot)) {
+                return status(HttpStatus.FORBIDDEN, db.map("error", "media path is outside upload directory"));
+            }
             file.transferTo(target);
             String mediaType = List.of("mp4", "mov", "avi").contains(ext) ? "video" : "photo";
             Path thumbnail = "video".equals(mediaType) ? generateVideoThumbnail(target, filename) : generatePhotoThumbnail(target, filename);
@@ -3103,6 +3335,38 @@ public class KinEchoApiService {
         return ResponseEntity.ok()
             .contentType(probeMediaType(path))
             .header(HttpHeaders.CACHE_CONTROL, "private, max-age=" + Math.max(60, properties.aiAudioUrlTtlSeconds))
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + safeDownloadName(path) + "\"")
+            .body(new FileSystemResource(path));
+    }
+
+    public ResponseEntity<?> downloadAiVoiceUpload(String filename, String token) {
+        Map<String, Object> claims = SessionTokenCodec.verifySignedPayload(token, properties, mapper);
+        if (claims == null
+            || !"ai_voice_upload".equals(db.string(claims.get("purpose")))
+            || !filename.equals(db.string(claims.get("file")))) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "invalid or expired voice upload token"));
+        }
+
+        if (filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "invalid voice file"));
+        }
+        String ext = extension(filename);
+        if (!List.of("mp3", "aac", "m4a", "wav", "webm", "ogg", "flac").contains(ext)) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "unsupported voice file"));
+        }
+
+        Path voiceRoot = properties.aiVoiceUploadDir.toAbsolutePath().normalize();
+        Path path = voiceRoot.resolve(filename).toAbsolutePath().normalize();
+        if (!path.startsWith(voiceRoot)) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "voice path is outside upload directory"));
+        }
+        if (!Files.isRegularFile(path)) {
+            return notFound("voice file not found");
+        }
+
+        return ResponseEntity.ok()
+            .contentType(probeMediaType(path))
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=" + Math.max(60, properties.aiVoiceUploadUrlTtlSeconds))
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + safeDownloadName(path) + "\"")
             .body(new FileSystemResource(path));
     }
@@ -3328,7 +3592,54 @@ public class KinEchoApiService {
         }
     }
     public ResponseEntity<Map<String, Object>> health() {
-        return ok(db.map("status", "ok", "timestamp", LocalDateTime.now().toString(), "backend", "java-spring-boot"));
+        List<Map<String, Object>> checks = new ArrayList<>();
+        checks.add(databaseHealthCheck());
+        checks.add(directoryHealthCheck("upload_dir", properties.uploadDir, true));
+        checks.add(directoryHealthCheck("ai_audio_dir", properties.aiAudioDir, false));
+        checks.add(directoryHealthCheck("ai_voice_upload_dir", properties.aiVoiceUploadDir, false));
+        checks.add(configHealthCheck());
+
+        String status = checks.stream().anyMatch(check -> "critical".equals(check.get("level")))
+            ? "down"
+            : checks.stream().anyMatch(check -> "warning".equals(check.get("level"))) ? "degraded" : "ok";
+        Map<String, Object> components = new LinkedHashMap<>();
+        for (Map<String, Object> check : checks) {
+            components.put(db.string(check.get("name")), check);
+        }
+        return ok(db.map(
+            "status", status,
+            "timestamp", LocalDateTime.now(properties.zoneId).format(DATE_TIME),
+            "backend", "java-spring-boot",
+            "components", components,
+            "checks", checks
+        ));
+    }
+
+    public ResponseEntity<Map<String, Object>> getAdminOpsMetrics() {
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("open_alerts", safeMetricCount("open_alerts", "SELECT COUNT(*) FROM family_alerts WHERE handled = 0"));
+        metrics.put("unread_alerts", safeMetricCount("unread_alerts", "SELECT COUNT(*) FROM family_alerts WHERE read = 0"));
+        metrics.put("pending_privacy_requests", safeMetricCount("pending_privacy_requests", "SELECT COUNT(*) FROM privacy_requests WHERE status = 'pending'"));
+        metrics.put("pending_service_certifications", safeMetricCount("pending_service_certifications", "SELECT COUNT(*) FROM service_certifications WHERE status = 'pending'"));
+        metrics.put("active_auth_accounts", safeMetricCount("active_auth_accounts", "SELECT COUNT(*) FROM auth_accounts WHERE disabled = 0"));
+        metrics.put("locked_auth_accounts", safeMetricCount("locked_auth_accounts", "SELECT COUNT(*) FROM auth_accounts WHERE locked_until IS NOT NULL AND locked_until > CURRENT_TIMESTAMP"));
+        boolean degraded = metrics.values().stream()
+            .filter(Map.class::isInstance)
+            .map(Map.class::cast)
+            .anyMatch(metric -> "critical".equals(metric.get("level")));
+        return ok(db.map(
+            "generated_at", LocalDateTime.now(properties.zoneId).format(DATE_TIME),
+            "status", degraded ? "degraded" : "ok",
+            "metrics", metrics
+        ));
+    }
+
+    private Map<String, Object> safeMetricCount(String name, String sql) {
+        try {
+            return db.map("name", name, "value", db.count(sql), "level", "ok");
+        } catch (Exception error) {
+            return db.map("name", name, "value", -1L, "level", "critical", "message", error.getMessage());
+        }
     }
 
     public ResponseEntity<Map<String, Object>> retentionSummary() {
@@ -3349,6 +3660,63 @@ public class KinEchoApiService {
                 "ai_voice_upload_dir", retentionDirectoryStatus(properties.aiVoiceUploadDir)
             )
         ));
+    }
+
+    private Map<String, Object> databaseHealthCheck() {
+        try {
+            db.count("SELECT 1");
+            return healthComponent("database", "ok", "database query succeeded", true);
+        } catch (Exception error) {
+            return healthComponent("database", "critical", "database query failed: " + error.getMessage(), false);
+        }
+    }
+
+    private Map<String, Object> directoryHealthCheck(String name, Path dir, boolean required) {
+        boolean exists = dir != null && Files.isDirectory(dir);
+        boolean writable = exists && Files.isWritable(dir);
+        String level = exists && writable ? "ok" : required ? "critical" : "warning";
+        String message;
+        if (dir == null) {
+            message = "directory is not configured";
+        } else if (!exists) {
+            message = "directory does not exist";
+        } else if (!writable) {
+            message = "directory is not writable";
+        } else {
+            message = "directory is writable";
+        }
+        Map<String, Object> component = healthComponent(name, level, message, exists && writable);
+        component.put("path", dir == null ? "" : dir.toString());
+        component.put("required", required);
+        return component;
+    }
+
+    private Map<String, Object> configHealthCheck() {
+        List<String> warnings = new ArrayList<>();
+        if (!properties.apiTokenEnabled) {
+            warnings.add("api token protection is disabled");
+        }
+        if (!properties.familyScopeSessionRequired) {
+            warnings.add("family scope session requirement is disabled");
+        }
+        if (properties.phoneSuffixLoginEnabled) {
+            warnings.add("phone suffix login compatibility is enabled");
+        }
+        return healthComponent(
+            "security_config",
+            warnings.isEmpty() ? "ok" : "warning",
+            warnings.isEmpty() ? "security toggles are hardened" : String.join("; ", warnings),
+            warnings.isEmpty()
+        );
+    }
+
+    private Map<String, Object> healthComponent(String name, String level, String message, boolean healthy) {
+        return db.map(
+            "name", name,
+            "level", level,
+            "healthy", healthy,
+            "message", message
+        );
     }
 
     private Map<String, Object> retentionDirectoryStatus(Path dir) {
@@ -4085,16 +4453,6 @@ public class KinEchoApiService {
         return null;
     }
 
-    private boolean allowedFile(String filename) {
-        String ext = extension(filename);
-        return List.of("png", "jpg", "jpeg", "gif", "mp4", "mov", "avi").contains(ext);
-    }
-
-    private boolean allowedMentalFrame(String filename) {
-        String ext = extension(filename);
-        return List.of("png", "jpg", "jpeg").contains(ext);
-    }
-
     private String extension(String filename) {
         int dot = filename.lastIndexOf('.');
         return dot >= 0 ? filename.substring(dot + 1).toLowerCase() : "";
@@ -4362,6 +4720,17 @@ public class KinEchoApiService {
     }
 
     private ResponseEntity<Map<String, Object>> loginUser(String userType, String username, String password) {
+        Map<String, Object> account = db.one("""
+            SELECT id, role, username, display_name, password_hash, permissions, user_id, family_id,
+                   disabled, failed_login_count, session_version, locked_until
+            FROM auth_accounts
+            WHERE role = ? AND LOWER(username) = LOWER(?)
+            LIMIT 1
+            """, userType, username).orElse(null);
+        if (account != null) {
+            return loginDatabaseUser(userType, username, password, account);
+        }
+
         Map<String, Object> user = db.one("""
             SELECT id, user_type, name, phone, family_id, binding_code
             FROM users
@@ -4377,6 +4746,65 @@ public class KinEchoApiService {
         }
 
         return ok(userLoginBody(userType, user));
+    }
+
+    private ResponseEntity<Map<String, Object>> loginDatabaseUser(String userType,
+                                                                  String username,
+                                                                  String password,
+                                                                  Map<String, Object> account) {
+        long accountId = db.longValue(account.get("id"), 0);
+        String familyId = db.string(account.get("family_id"));
+        if (db.boolValue(account.get("disabled"))) {
+            auditAuthAction(accountId, userType, username, "login_blocked", false, "account disabled", familyId);
+            return status(HttpStatus.FORBIDDEN, db.map("error", "account is disabled"));
+        }
+
+        LocalDateTime lockedUntil = db.parseDateTime(account.get("locked_until"));
+        if (lockedUntil != null && lockedUntil.isAfter(LocalDateTime.now(properties.zoneId))) {
+            auditAuthAction(accountId, userType, username, "login_blocked", false, "account locked", familyId);
+            return status(HttpStatus.LOCKED, db.map("error", "account is temporarily locked"));
+        }
+
+        if (!PasswordHasher.verify(password, db.string(account.get("password_hash")))) {
+            recordFailedAuthLogin(account);
+            auditAuthAction(accountId, userType, username, "login_failed", false, "bad credentials", familyId);
+            return unauthorized("username or password is incorrect");
+        }
+
+        long userId = db.longValue(account.get("user_id"), 0);
+        if (userId <= 0) {
+            auditAuthAction(accountId, userType, username, "login_blocked", false, "account missing user binding", familyId);
+            return status(HttpStatus.FORBIDDEN, db.map("error", "account is not bound to an active user"));
+        }
+
+        Map<String, Object> user = db.one("""
+            SELECT id, user_type, name, phone, family_id, binding_code
+            FROM users
+            WHERE id = ? AND user_type = ? AND is_active = 1
+            LIMIT 1
+            """, userId, userType).orElse(null);
+        if (user == null) {
+            auditAuthAction(accountId, userType, username, "login_blocked", false, "bound user inactive or missing", familyId);
+            return status(HttpStatus.FORBIDDEN, db.map("error", "account is not bound to an active user"));
+        }
+
+        db.update("""
+            UPDATE auth_accounts
+            SET failed_login_count = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, accountId);
+        auditAuthAction(accountId, userType, username, "login_success", true, "", familyId);
+
+        Map<String, Object> body = userLoginBody(userType, user);
+        body.put("username", account.get("username"));
+        body.put("auth_account_id", accountId);
+        body.put("session_version", db.intValue(account.get("session_version"), 1));
+        body.put("permissions", db.jsonList(account.get("permissions")).stream()
+            .map(String::valueOf)
+            .filter(value -> !value.isBlank())
+            .toList());
+        attachSessionToken(body);
+        return ok(body);
     }
 
     private ResponseEntity<Map<String, Object>> loginWechatUser(String userType, WechatSession wechatSession, Map<String, Object> userInfo) {
@@ -4458,12 +4886,86 @@ public class KinEchoApiService {
         return body;
     }
 
-    private ResponseEntity<Map<String, Object>> loginOperator(String role,
-                                                              String username,
-                                                              String password,
-                                                              String expectedUsername,
-                                                              String expectedPassword,
-                                                              String displayName) {
+    private ResponseEntity<Map<String, Object>> loginOperator(String role, String username, String password) {
+        Map<String, Object> account = db.one("""
+            SELECT id, role, username, display_name, password_hash, permissions, organization_id, family_id,
+                   disabled, failed_login_count, session_version, locked_until
+            FROM auth_accounts
+            WHERE role = ? AND LOWER(username) = LOWER(?)
+            LIMIT 1
+            """, role, username).orElse(null);
+        if (account != null) {
+            return loginDatabaseOperator(role, username, password, account);
+        }
+
+        if (properties.staticOperatorLoginEnabled) {
+            return loginStaticOperator(role, username, password);
+        }
+
+        auditAuthAction(null, role, username, "login_failed", false, "account not found", "");
+        return unauthorized("username or password is incorrect");
+    }
+
+    private ResponseEntity<Map<String, Object>> loginDatabaseOperator(String role,
+                                                                      String username,
+                                                                      String password,
+                                                                      Map<String, Object> account) {
+        long accountId = db.longValue(account.get("id"), 0);
+        String familyId = db.string(account.get("family_id"));
+        if (db.boolValue(account.get("disabled"))) {
+            auditAuthAction(accountId, role, username, "login_blocked", false, "account disabled", familyId);
+            return status(HttpStatus.FORBIDDEN, db.map("error", "account is disabled"));
+        }
+
+        LocalDateTime lockedUntil = db.parseDateTime(account.get("locked_until"));
+        if (lockedUntil != null && lockedUntil.isAfter(LocalDateTime.now(properties.zoneId))) {
+            auditAuthAction(accountId, role, username, "login_blocked", false, "account locked", familyId);
+            return status(HttpStatus.LOCKED, db.map("error", "account is temporarily locked"));
+        }
+
+        if (!PasswordHasher.verify(password, db.string(account.get("password_hash")))) {
+            recordFailedAuthLogin(account);
+            auditAuthAction(accountId, role, username, "login_failed", false, "bad credentials", familyId);
+            return unauthorized("username or password is incorrect");
+        }
+
+        db.update("""
+            UPDATE auth_accounts
+            SET failed_login_count = 0, locked_until = NULL, last_login_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, accountId);
+        auditAuthAction(accountId, role, username, "login_success", true, "", familyId);
+
+        List<String> permissions = db.jsonList(account.get("permissions")).stream()
+            .map(String::valueOf)
+            .filter(value -> !value.isBlank())
+            .toList();
+        Map<String, Object> body = db.map(
+            "success", true,
+            "role", role,
+            "user_id", accountId,
+            "auth_account_id", accountId,
+            "session_version", db.intValue(account.get("session_version"), 1),
+            "username", account.get("username"),
+            "display_name", blank(db.string(account.get("display_name"))) ? username : account.get("display_name"),
+            "permissions", permissions
+        );
+        String organizationId = db.string(account.get("organization_id"));
+        if (!blank(organizationId)) {
+            body.put("organization_id", organizationId);
+        }
+        if (!blank(familyId)) {
+            body.put("family_id", familyId);
+            body.put("family_ids", List.of(familyId));
+        }
+        attachSessionToken(body);
+        return ok(body);
+    }
+
+    private ResponseEntity<Map<String, Object>> loginStaticOperator(String role, String username, String password) {
+        String expectedUsername = "service".equals(role) ? properties.serviceUsername : properties.adminUsername;
+        String expectedPassword = "service".equals(role) ? properties.servicePassword : properties.adminPassword;
+        String displayName = "service".equals(role) ? properties.serviceDisplayName : properties.adminDisplayName;
         if (!expectedUsername.equalsIgnoreCase(username) || !expectedPassword.equals(password)) {
             return unauthorized("username or password is incorrect");
         }
@@ -4472,13 +4974,43 @@ public class KinEchoApiService {
             "success", true,
             "role", role,
             "username", username,
-            "display_name", displayName
+            "display_name", displayName,
+            "permissions", List.of(role + ":legacy")
         );
         if ("service".equals(role)) {
             body.put("family_id", properties.serviceFamilyId);
+            body.put("family_ids", List.of(properties.serviceFamilyId));
         }
+        auditAuthAction(null, role, username, "legacy_login_success", true, "", db.string(body.get("family_id")));
         attachSessionToken(body);
         return ok(body);
+    }
+
+    private void recordFailedAuthLogin(Map<String, Object> account) {
+        long accountId = db.longValue(account.get("id"), 0);
+        int failed = db.intValue(account.get("failed_login_count"), 0) + 1;
+        Timestamp lockedUntil = failed >= 5 ? Timestamp.valueOf(LocalDateTime.now(properties.zoneId).plusMinutes(15)) : null;
+        db.update("""
+            UPDATE auth_accounts
+            SET failed_login_count = ?, locked_until = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, failed, lockedUntil, accountId);
+    }
+
+    private void auditAuthAction(Object accountId,
+                                 String role,
+                                 String username,
+                                 String actionType,
+                                 boolean success,
+                                 String reason,
+                                 String familyId) {
+        try {
+            db.insert("""
+                INSERT INTO auth_audit_logs (account_id, role, username, action_type, success, reason, family_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, accountId, role, username, actionType, success ? 1 : 0, reason, familyId);
+        } catch (Exception ignored) {
+        }
     }
 
     private void attachSessionToken(Map<String, Object> body) {
@@ -4496,6 +5028,85 @@ public class KinEchoApiService {
 
     private String extractSessionToken(String sessionToken, String authorization) {
         return SessionTokenCodec.extract(sessionToken, authorization, properties);
+    }
+
+    private ResponseEntity<Map<String, Object>> requireAdminSession(String sessionToken, String authorization, String requiredPermission) {
+        String token = extractSessionToken(sessionToken, authorization);
+        if (blank(token)) {
+            return unauthorized("missing admin session token");
+        }
+        Map<String, Object> payload = verifySessionToken(token);
+        if (payload == null) {
+            return unauthorized("invalid admin session token");
+        }
+        if (!"admin".equals(db.string(payload.get("role")))) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "admin role is required"));
+        }
+        if (!blank(requiredPermission) && !sessionHasPermission(payload.get("permissions"), requiredPermission)) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "admin permission is required"));
+        }
+        return null;
+    }
+
+    private boolean sessionHasPermission(Object raw, String requiredPermission) {
+        if (raw instanceof Iterable<?> values) {
+            for (Object value : values) {
+                if (permissionMatches(db.string(value), requiredPermission)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        for (String part : db.string(raw).split(",")) {
+            if (permissionMatches(part, requiredPermission)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean permissionMatches(String value, String requiredPermission) {
+        String permission = db.string(value).trim();
+        return permission.equals(requiredPermission)
+            || permission.equals("admin:*")
+            || permission.equals("admin:legacy");
+    }
+
+    private boolean strongAccountPassword(String password) {
+        return password != null && password.trim().length() >= 12;
+    }
+
+    private boolean confirmedAdminAction(Map<String, Object> data) {
+        return db.boolValue(data.get("confirmed"))
+            || db.boolValue(data.get("confirm"))
+            || "CONFIRM".equalsIgnoreCase(db.string(data.get("confirmation")).trim());
+    }
+
+    private List<String> permissionsFromRequest(Object raw, String role) {
+        List<Object> values;
+        if (raw instanceof String text) {
+            String trimmed = text.trim();
+            if (trimmed.isBlank()) {
+                values = List.of();
+            } else if (trimmed.startsWith("[")) {
+                values = db.jsonList(trimmed);
+            } else {
+                values = Arrays.stream(trimmed.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .map(value -> (Object) value)
+                    .toList();
+            }
+        } else {
+            values = db.jsonList(raw);
+        }
+        List<String> permissions = values.stream()
+            .map(String::valueOf)
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .distinct()
+            .toList();
+        return permissions.isEmpty() ? List.of(role + ":*") : permissions;
     }
 
     private boolean matchesLoginPassword(Map<String, Object> user, String password) {
@@ -4545,7 +5156,30 @@ public class KinEchoApiService {
     }
 
     private ResponseEntity<Map<String, Object>> status(HttpStatus status, Map<String, Object> body) {
+        if (body != null && body.containsKey("error") && !body.containsKey("code")) {
+            Map<String, Object> enriched = new LinkedHashMap<>(body);
+            String message = db.string(enriched.get("error"));
+            enriched.put("code", defaultErrorCode(status));
+            enriched.put("message", message);
+            enriched.put("request_id", UUID.randomUUID().toString());
+            return ResponseEntity.status(status).body(enriched);
+        }
         return ResponseEntity.status(status).body(body);
+    }
+
+    private String defaultErrorCode(HttpStatus status) {
+        return switch (status) {
+            case BAD_REQUEST -> "bad_request";
+            case UNAUTHORIZED -> "unauthorized";
+            case FORBIDDEN -> "forbidden";
+            case NOT_FOUND -> "not_found";
+            case CONFLICT -> "conflict";
+            case LOCKED -> "account_locked";
+            case UNPROCESSABLE_ENTITY -> "unprocessable_entity";
+            case INTERNAL_SERVER_ERROR -> "internal_error";
+            case BAD_GATEWAY -> "bad_gateway";
+            default -> status.name().toLowerCase(Locale.ROOT);
+        };
     }
 
     private record WechatSession(String openid, String unionid) {

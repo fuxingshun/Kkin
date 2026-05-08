@@ -6,7 +6,8 @@
   "scripts": {
     "dev:weapp": "node scripts/dev-weapp.js",
     "build:weapp": "taro build --type weapp && node scripts/ensure-weapp-page-wxss.js && node scripts/patch-weapp-taro-node-getters.js && node scripts/check-weapp-bundle-budget.js",
-    "smoke:checklist": "node scripts/smoke-checklist.js"
+    "smoke:checklist": "node scripts/smoke-checklist.js",
+    "audit:security": "npm audit --audit-level=high"
   },
   "dependencies": {
     "@tarojs/components": "4.1.11",
@@ -31,8 +32,19 @@
     "typescript": "^5.8.3"
   },
   "overrides": {
+    "@tarojs/plugin-doctor": {
+      "glob": "10.5.0"
+    },
+    "axios": "1.16.0",
+    "download-git-repo": "file:./vendor/download-git-repo-disabled",
     "esbuild": "0.27.7",
+    "got": "11.8.6",
+    "html-minifier": "file:./vendor/html-minifier-safe",
+    "http-cache-semantics": "4.2.0",
+    "postcss-url": "file:./vendor/postcss-url-safe",
+    "serialize-javascript": "7.0.5",
     "swiper": "12.1.4",
+    "vm2": "3.11.2",
     "webpack": "5.105.0",
     "webpack-dev-server": "5.2.2"
   }

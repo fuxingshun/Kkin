@@ -3,6 +3,7 @@ package com.kinecho.server.mapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.kinecho.server.config.KinEchoProperties;
+import com.kinecho.server.security.PasswordHasher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementCreator;
@@ -43,6 +44,7 @@ public class KinEchoMapper {
     public void initialize() {
         createTables();
         migrateSchema();
+        seedAuthAccounts();
         seedCounselors();
         createIndexes();
     }
@@ -290,6 +292,7 @@ public class KinEchoMapper {
         String integer = isMysql() ? "INT" : "INTEGER";
         String bigInt = isMysql() ? "BIGINT" : "INTEGER";
         String uniqueMediaFeedback = isMysql() ? "UNIQUE KEY uq_media_feedback (media_id, elderly_id)" : "UNIQUE(media_id, elderly_id)";
+        String uniqueAuthAccount = isMysql() ? "UNIQUE KEY uq_auth_account_role_username (role, username)" : "UNIQUE(role, username)";
 
         jdbc.execute("""
             CREATE TABLE IF NOT EXISTS users (
@@ -312,6 +315,45 @@ public class KinEchoMapper {
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """.formatted(id, varchar32, text, varchar64, varchar64, varchar32, varchar191, varchar191, text, text, integer, varchar64, varchar64, varchar64));
+
+        jdbc.execute("""
+            CREATE TABLE IF NOT EXISTS auth_accounts (
+                id %s,
+                role %s NOT NULL,
+                username %s NOT NULL,
+                display_name %s,
+                password_hash %s NOT NULL,
+                permissions %s,
+                user_id %s,
+                organization_id %s,
+                family_id %s,
+                disabled %s DEFAULT 0,
+                failed_login_count %s DEFAULT 0,
+                session_version %s DEFAULT 1,
+                locked_until TIMESTAMP,
+                last_login_at TIMESTAMP,
+                created_by %s,
+                updated_by %s,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                %s
+            )
+            """.formatted(id, varchar32, varchar191, text, text, text, bigInt, varchar64, varchar64, integer, integer, integer, varchar64, varchar64, uniqueAuthAccount));
+
+        jdbc.execute("""
+            CREATE TABLE IF NOT EXISTS auth_audit_logs (
+                id %s,
+                account_id %s,
+                role %s NOT NULL,
+                username %s NOT NULL,
+                action_type %s NOT NULL,
+                success %s DEFAULT 0,
+                reason %s,
+                family_id %s,
+                ip_address %s,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """.formatted(id, bigInt, varchar32, varchar191, varchar64, integer, text, varchar64, varchar64));
 
         jdbc.execute("""
             CREATE TABLE IF NOT EXISTS service_certifications (
@@ -703,6 +745,26 @@ public class KinEchoMapper {
             "deleted_at TIMESTAMP",
             "updated_at TIMESTAMP"
         ));
+        migrateColumns("auth_accounts", List.of(
+            "display_name " + text,
+            "password_hash " + text,
+            "permissions " + text,
+            "user_id " + bigInt,
+            "organization_id " + varchar64,
+            "family_id " + varchar64,
+            "disabled " + integer + " DEFAULT 0",
+            "failed_login_count " + integer + " DEFAULT 0",
+            "session_version " + integer + " DEFAULT 1",
+            "locked_until TIMESTAMP",
+            "last_login_at TIMESTAMP",
+            "created_by " + varchar64,
+            "updated_by " + varchar64,
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("auth_audit_logs", List.of(
+            "family_id " + varchar64,
+            "ip_address " + varchar64
+        ));
         migrateColumns("ai_interactions", List.of(
             "way " + varchar64 + " DEFAULT 'speak'",
             "timetext " + text,
@@ -917,6 +979,10 @@ public class KinEchoMapper {
 
         safeUpdate("UPDATE users SET is_active = 1 WHERE is_active IS NULL");
         safeUpdate("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL");
+        safeUpdate("UPDATE auth_accounts SET disabled = 0 WHERE disabled IS NULL");
+        safeUpdate("UPDATE auth_accounts SET failed_login_count = 0 WHERE failed_login_count IS NULL");
+        safeUpdate("UPDATE auth_accounts SET session_version = 1 WHERE session_version IS NULL OR session_version <= 0");
+        safeUpdate("UPDATE auth_accounts SET updated_at = created_at WHERE updated_at IS NULL");
         safeUpdate("UPDATE ai_interactions SET way = 'speak' WHERE way IS NULL");
         safeUpdate("UPDATE schedules SET repeat_type = 'once' WHERE repeat_type IS NULL OR repeat_type = ''");
         safeUpdate("UPDATE schedules SET status = 'pending' WHERE status IS NULL OR status = ''");
@@ -983,6 +1049,64 @@ public class KinEchoMapper {
     private void safeUpdate(String sql) {
         try {
             jdbc.update(sql);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void seedAuthAccounts() {
+        if (!properties.authBootstrapEnabled) {
+            return;
+        }
+        seedAuthAccount(
+            "admin",
+            properties.adminUsername,
+            properties.adminPassword,
+            properties.adminDisplayName,
+            "",
+            List.of("admin:*")
+        );
+        seedAuthAccount(
+            "service",
+            properties.serviceUsername,
+            properties.servicePassword,
+            properties.serviceDisplayName,
+            properties.serviceFamilyId,
+            List.of("service:*")
+        );
+    }
+
+    private void seedAuthAccount(String role,
+                                 String username,
+                                 String password,
+                                 String displayName,
+                                 String familyId,
+                                 List<String> permissions) {
+        if (username == null || username.isBlank() || password == null || password.isBlank()) {
+            return;
+        }
+        try {
+            Map<String, Object> existing = one("""
+                SELECT id
+                FROM auth_accounts
+                WHERE role = ? AND username = ?
+                LIMIT 1
+                """, role, username).orElse(null);
+            if (existing != null) {
+                return;
+            }
+            insert("""
+                INSERT INTO auth_accounts (
+                    role, username, display_name, password_hash, permissions, family_id, disabled, failed_login_count, created_by, updated_by
+                )
+                VALUES (?, ?, ?, ?, ?, ?, 0, 0, 'bootstrap', 'bootstrap')
+                """,
+                role,
+                username,
+                displayName,
+                PasswordHasher.hash(password),
+                toJson(permissions),
+                familyId == null ? "" : familyId
+            );
         } catch (Exception ignored) {
         }
     }
@@ -1241,6 +1365,9 @@ public class KinEchoMapper {
         createIndex("idx_users_family_active", "users", "family_id, is_active, user_type");
         createIndex("idx_users_binding_code", "users", "binding_code");
         createIndex("idx_users_wechat_openid", "users", "wechat_openid");
+        createIndex("idx_auth_accounts_role_username", "auth_accounts", "role, username");
+        createIndex("idx_auth_accounts_user", "auth_accounts", "user_id");
+        createIndex("idx_auth_audit_role_created", "auth_audit_logs", "role, created_at DESC");
         createIndex("idx_service_cert_openid", "service_certifications", "wechat_openid, status");
         createIndex("idx_mood_records_family_id", "mood_records", "family_id");
         createIndex("idx_mood_records_elderly_id", "mood_records", "elderly_id");

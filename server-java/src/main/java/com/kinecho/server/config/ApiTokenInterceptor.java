@@ -1,5 +1,6 @@
 package com.kinecho.server.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
@@ -8,9 +9,11 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class ApiTokenInterceptor implements HandlerInterceptor {
     private static final String TOKEN_HEADER = "X-KinEcho-Token";
     private final KinEchoProperties properties;
+    private final ObjectMapper mapper;
 
-    public ApiTokenInterceptor(KinEchoProperties properties) {
+    public ApiTokenInterceptor(KinEchoProperties properties, ObjectMapper mapper) {
         this.properties = properties;
+        this.mapper = mapper;
     }
 
     @Override
@@ -20,7 +23,7 @@ public class ApiTokenInterceptor implements HandlerInterceptor {
         }
 
         if (properties.apiToken == null || properties.apiToken.isBlank()) {
-            response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "api token is not configured");
+            ErrorResponseWriter.write(response, mapper, HttpServletResponse.SC_UNAUTHORIZED, "api_token_not_configured", "api token is not configured");
             return false;
         }
 
@@ -28,7 +31,7 @@ public class ApiTokenInterceptor implements HandlerInterceptor {
             return true;
         }
 
-        response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid api token");
+        ErrorResponseWriter.write(response, mapper, HttpServletResponse.SC_UNAUTHORIZED, "invalid_api_token", "invalid api token");
         return false;
     }
 

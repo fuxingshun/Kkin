@@ -1,6 +1,39 @@
 package com.kinecho.server.controller;
 
+import com.kinecho.server.controller.dto.AdminAuthAccountCreateRequest;
+import com.kinecho.server.controller.dto.AdminAuthAccountUpdateRequest;
+import com.kinecho.server.controller.dto.AdminCounselorUpdateRequest;
+import com.kinecho.server.controller.dto.AdminPsychologyQuestionCreateRequest;
+import com.kinecho.server.controller.dto.AdminPsychologyQuestionUpdateRequest;
+import com.kinecho.server.controller.dto.AdminPsychologyVideoCreateRequest;
+import com.kinecho.server.controller.dto.AdminPsychologyVideoUpdateRequest;
+import com.kinecho.server.controller.dto.ConsentRecordCreateRequest;
+import com.kinecho.server.controller.dto.ConsultationCreateRequest;
+import com.kinecho.server.controller.dto.ConsultationUpdateRequest;
+import com.kinecho.server.controller.dto.ElderlyAlertCreateRequest;
+import com.kinecho.server.controller.dto.ElderlyMoodCreateRequest;
+import com.kinecho.server.controller.dto.FamilyAlertCreateRequest;
+import com.kinecho.server.controller.dto.FamilyAlertHandleRequest;
+import com.kinecho.server.controller.dto.FamilyAlertReplyRequest;
+import com.kinecho.server.controller.dto.FamilyBindByCodeRequest;
+import com.kinecho.server.controller.dto.FamilyMessageCreateRequest;
+import com.kinecho.server.controller.dto.MediaFeedbackRequest;
+import com.kinecho.server.controller.dto.MediaPlayRecordRequest;
+import com.kinecho.server.controller.dto.MediaUpdateRequest;
+import com.kinecho.server.controller.dto.PrivacyRequestCreateRequest;
+import com.kinecho.server.controller.dto.PrivacyRequestReviewRequest;
+import com.kinecho.server.controller.dto.ScheduleCreateRequest;
+import com.kinecho.server.controller.dto.ScheduleStatusRequest;
+import com.kinecho.server.controller.dto.ScheduleUpdateRequest;
+import com.kinecho.server.controller.dto.ServiceCertificationReviewRequest;
+import com.kinecho.server.controller.dto.ServiceCertificationSubmitRequest;
+import com.kinecho.server.controller.dto.ServiceFollowupCreateRequest;
+import com.kinecho.server.controller.dto.ServiceFollowupStatusRequest;
+import com.kinecho.server.controller.dto.ServiceRecordCreateRequest;
+import com.kinecho.server.controller.dto.UserCreateRequest;
+import com.kinecho.server.controller.dto.UserUpdateRequest;
 import com.kinecho.server.service.KinEchoApiService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -56,8 +89,8 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/auth/service-certification")
-    public ResponseEntity<Map<String, Object>> serviceCertification(@RequestBody Map<String, Object> data) {
-        return service.submitServiceCertification(data);
+    public ResponseEntity<Map<String, Object>> serviceCertification(@Valid @RequestBody(required = false) ServiceCertificationSubmitRequest data) {
+        return service.submitServiceCertification(data == null ? null : data.toMap());
     }
 
     @GetMapping("/admin/service-certifications")
@@ -68,8 +101,8 @@ public class KinEchoApiController {
 
     @PutMapping("/admin/service-certifications/{certificationId}")
     public ResponseEntity<Map<String, Object>> reviewServiceCertification(@PathVariable long certificationId,
-                                                                          @RequestBody(required = false) Map<String, Object> data) {
-        return service.reviewServiceCertification(certificationId, data);
+                                                                          @Valid @RequestBody(required = false) ServiceCertificationReviewRequest data) {
+        return service.reviewServiceCertification(certificationId, data == null ? null : data.toMap());
     }
 
     @GetMapping("/admin/privacy/requests")
@@ -81,8 +114,33 @@ public class KinEchoApiController {
 
     @PutMapping("/admin/privacy/requests/{requestId}")
     public ResponseEntity<Map<String, Object>> reviewPrivacyRequest(@PathVariable long requestId,
-                                                                    @RequestBody(required = false) Map<String, Object> data) {
-        return service.reviewPrivacyRequest(requestId, data);
+                                                                    @Valid @RequestBody(required = false) PrivacyRequestReviewRequest data) {
+        return service.reviewPrivacyRequest(requestId, data == null ? null : data.toMap());
+    }
+
+    @GetMapping("/admin/auth/accounts")
+    public ResponseEntity<Map<String, Object>> getAdminAuthAccounts(@RequestParam(required = false) String role,
+                                                                    @RequestParam(required = false) String family_id,
+                                                                    @RequestParam(required = false) String status,
+                                                                    @RequestParam(defaultValue = "100") int limit,
+                                                                    @RequestHeader(value = "X-KinEcho-Session", required = false) String sessionToken,
+                                                                    @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return service.getAdminAuthAccounts(role, family_id, status, limit, sessionToken, authorization);
+    }
+
+    @PostMapping("/admin/auth/accounts")
+    public ResponseEntity<Map<String, Object>> createAdminAuthAccount(@Valid @RequestBody(required = false) AdminAuthAccountCreateRequest data,
+                                                                      @RequestHeader(value = "X-KinEcho-Session", required = false) String sessionToken,
+                                                                      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return service.createAdminAuthAccount(data == null ? null : data.toMap(), sessionToken, authorization);
+    }
+
+    @PutMapping("/admin/auth/accounts/{accountId}")
+    public ResponseEntity<Map<String, Object>> updateAdminAuthAccount(@PathVariable long accountId,
+                                                                      @Valid @RequestBody(required = false) AdminAuthAccountUpdateRequest data,
+                                                                      @RequestHeader(value = "X-KinEcho-Session", required = false) String sessionToken,
+                                                                      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return service.updateAdminAuthAccount(accountId, data == null ? null : data.toMap(), sessionToken, authorization);
     }
 
     @GetMapping("/family/schedules")
@@ -91,13 +149,14 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/family/schedules")
-    public ResponseEntity<Map<String, Object>> createSchedule(@RequestBody Map<String, Object> data) {
-        return service.createSchedule(data);
+    public ResponseEntity<Map<String, Object>> createSchedule(@Valid @RequestBody(required = false) ScheduleCreateRequest data) {
+        return service.createSchedule(data == null ? Map.of() : data.toMap());
     }
 
     @PutMapping("/family/schedules/{scheduleId}")
-    public ResponseEntity<Map<String, Object>> updateSchedule(@PathVariable long scheduleId, @RequestBody Map<String, Object> data) {
-        return service.updateSchedule(scheduleId, data);
+    public ResponseEntity<Map<String, Object>> updateSchedule(@PathVariable long scheduleId,
+                                                              @Valid @RequestBody(required = false) ScheduleUpdateRequest data) {
+        return service.updateSchedule(scheduleId, data == null ? Map.of() : data.toMap());
     }
 
     @DeleteMapping("/family/schedules/{scheduleId}")
@@ -112,13 +171,14 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/family/alerts")
-    public ResponseEntity<Map<String, Object>> createAlert(@RequestBody Map<String, Object> data) {
-        return service.createAlert(data);
+    public ResponseEntity<Map<String, Object>> createAlert(@Valid @RequestBody(required = false) FamilyAlertCreateRequest data) {
+        return service.createAlert(data == null ? Map.of() : data.toMap());
     }
 
     @PostMapping("/family/alerts/{alertId}/handle")
-    public ResponseEntity<Map<String, Object>> handleAlert(@PathVariable long alertId, @RequestBody(required = false) Map<String, Object> data) {
-        return service.handleAlert(alertId, data);
+    public ResponseEntity<Map<String, Object>> handleAlert(@PathVariable long alertId,
+                                                           @Valid @RequestBody(required = false) FamilyAlertHandleRequest data) {
+        return service.handleAlert(alertId, data == null ? Map.of() : data.toMap());
     }
 
     @PostMapping("/family/alerts/{alertId}/read")
@@ -128,8 +188,9 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/family/alerts/{alertId}/reply")
-    public ResponseEntity<Map<String, Object>> replyAlert(@PathVariable long alertId, @RequestBody Map<String, Object> data) {
-        return service.replyAlert(alertId, data);
+    public ResponseEntity<Map<String, Object>> replyAlert(@PathVariable long alertId,
+                                                          @Valid @RequestBody(required = false) FamilyAlertReplyRequest data) {
+        return service.replyAlert(alertId, data == null ? Map.of() : data.toMap());
     }
 
     @DeleteMapping("/family/alerts/{alertId}")
@@ -149,8 +210,8 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/family/messages")
-    public ResponseEntity<Map<String, Object>> createMessage(@RequestBody Map<String, Object> data) {
-        return service.createMessage(data);
+    public ResponseEntity<Map<String, Object>> createMessage(@Valid @RequestBody(required = false) FamilyMessageCreateRequest data) {
+        return service.createMessage(data == null ? Map.of() : data.toMap());
     }
 
     @DeleteMapping("/family/messages/{messageId}")
@@ -185,8 +246,8 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/elderly/alerts")
-    public ResponseEntity<Map<String, Object>> createElderlyAlert(@RequestBody Map<String, Object> data) {
-        return service.createElderlyAlert(data);
+    public ResponseEntity<Map<String, Object>> createElderlyAlert(@Valid @RequestBody(required = false) ElderlyAlertCreateRequest data) {
+        return service.createElderlyAlert(data == null ? Map.of() : data.toMap());
     }
 
     @GetMapping("/elderly/alerts/replies")
@@ -195,8 +256,8 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/elderly/moods")
-    public ResponseEntity<Map<String, Object>> createMood(@RequestBody Map<String, Object> data) {
-        return service.createMood(data);
+    public ResponseEntity<Map<String, Object>> createMood(@Valid @RequestBody(required = false) ElderlyMoodCreateRequest data) {
+        return service.createMood(data == null ? Map.of() : data.toMap());
     }
 
     @GetMapping("/elderly/moods")
@@ -247,8 +308,8 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/privacy/consents")
-    public ResponseEntity<Map<String, Object>> recordConsent(@RequestBody(required = false) Map<String, Object> data) {
-        return service.recordConsent(data);
+    public ResponseEntity<Map<String, Object>> recordConsent(@Valid @RequestBody(required = false) ConsentRecordCreateRequest data) {
+        return service.recordConsent(data == null ? Map.of() : data.toMap());
     }
 
     @GetMapping("/privacy/consents")
@@ -263,8 +324,8 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/privacy/requests")
-    public ResponseEntity<Map<String, Object>> createPrivacyRequest(@RequestBody(required = false) Map<String, Object> data) {
-        return service.createPrivacyRequest(data);
+    public ResponseEntity<Map<String, Object>> createPrivacyRequest(@Valid @RequestBody(required = false) PrivacyRequestCreateRequest data) {
+        return service.createPrivacyRequest(data == null ? null : data.toMap());
     }
 
     @PostMapping(value = "/elderly/mental-screenings/live", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -338,18 +399,20 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/elderly/schedules/{scheduleId}/status")
-    public ResponseEntity<Map<String, Object>> updateScheduleStatus(@PathVariable long scheduleId, @RequestBody Map<String, Object> data) {
-        return service.updateScheduleStatus(scheduleId, data);
+    public ResponseEntity<Map<String, Object>> updateScheduleStatus(@PathVariable long scheduleId,
+                                                                    @Valid @RequestBody(required = false) ScheduleStatusRequest data) {
+        return service.updateScheduleStatus(scheduleId, data == null ? Map.of() : data.toMap());
     }
 
     @PostMapping("/users")
-    public ResponseEntity<Map<String, Object>> createUser(@RequestBody Map<String, Object> data) {
-        return service.createUser(data);
+    public ResponseEntity<Map<String, Object>> createUser(@Valid @RequestBody(required = false) UserCreateRequest data) {
+        return service.createUser(data == null ? null : data.toMap());
     }
 
     @PutMapping("/users/{userId}")
-    public ResponseEntity<Map<String, Object>> updateUser(@PathVariable long userId, @RequestBody Map<String, Object> data) {
-        return service.updateUser(userId, data);
+    public ResponseEntity<Map<String, Object>> updateUser(@PathVariable long userId,
+                                                          @Valid @RequestBody(required = false) UserUpdateRequest data) {
+        return service.updateUser(userId, data == null ? null : data.toMap());
     }
 
     @DeleteMapping("/users/{userId}")
@@ -371,8 +434,8 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/users/bind-by-code")
-    public ResponseEntity<Map<String, Object>> bindFamilyByCode(@RequestBody Map<String, Object> data) {
-        return service.bindFamilyByCode(data);
+    public ResponseEntity<Map<String, Object>> bindFamilyByCode(@Valid @RequestBody(required = false) FamilyBindByCodeRequest data) {
+        return service.bindFamilyByCode(data == null ? Map.of() : data.toMap());
     }
 
     @GetMapping("/service/overview")
@@ -413,19 +476,19 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/service/followups")
-    public ResponseEntity<Map<String, Object>> createServiceFollowup(@RequestBody Map<String, Object> data) {
-        return service.createServiceFollowup(data);
+    public ResponseEntity<Map<String, Object>> createServiceFollowup(@Valid @RequestBody(required = false) ServiceFollowupCreateRequest data) {
+        return service.createServiceFollowup(data == null ? null : data.toMap());
     }
 
     @PutMapping("/service/followups/{consultationId}/status")
     public ResponseEntity<Map<String, Object>> updateServiceFollowupStatus(@PathVariable long consultationId,
-                                                                           @RequestBody Map<String, Object> data) {
-        return service.updateServiceFollowupStatus(consultationId, data);
+                                                                           @Valid @RequestBody(required = false) ServiceFollowupStatusRequest data) {
+        return service.updateServiceFollowupStatus(consultationId, data == null ? null : data.toMap());
     }
 
     @PostMapping("/service/records")
-    public ResponseEntity<Map<String, Object>> createServiceRecord(@RequestBody Map<String, Object> data) {
-        return service.createServiceRecord(data);
+    public ResponseEntity<Map<String, Object>> createServiceRecord(@Valid @RequestBody(required = false) ServiceRecordCreateRequest data) {
+        return service.createServiceRecord(data == null ? null : data.toMap());
     }
 
     @GetMapping("/admin/service-summary")
@@ -445,6 +508,11 @@ public class KinEchoApiController {
         return service.getAdminAnalytics(family_id, months, days);
     }
 
+    @GetMapping("/admin/ops/metrics")
+    public ResponseEntity<Map<String, Object>> getAdminOpsMetrics() {
+        return service.getAdminOpsMetrics();
+    }
+
     @GetMapping("/counselors")
     public ResponseEntity<Map<String, Object>> getCounselors() {
         return service.getCounselors();
@@ -457,8 +525,8 @@ public class KinEchoApiController {
 
     @PutMapping("/admin/counselors/{counselorId}")
     public ResponseEntity<Map<String, Object>> updateAdminCounselor(@PathVariable long counselorId,
-                                                                    @RequestBody(required = false) Map<String, Object> data) {
-        return service.updateAdminCounselor(counselorId, data);
+                                                                    @Valid @RequestBody(required = false) AdminCounselorUpdateRequest data) {
+        return service.updateAdminCounselor(counselorId, data == null ? Map.of() : data.toMap());
     }
 
     @GetMapping("/psychology/resources")
@@ -467,25 +535,25 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/admin/psychology/videos")
-    public ResponseEntity<Map<String, Object>> createAdminPsychologyVideo(@RequestBody(required = false) Map<String, Object> data) {
-        return service.createAdminPsychologyVideo(data);
+    public ResponseEntity<Map<String, Object>> createAdminPsychologyVideo(@Valid @RequestBody(required = false) AdminPsychologyVideoCreateRequest data) {
+        return service.createAdminPsychologyVideo(data == null ? Map.of() : data.toMap());
     }
 
     @PutMapping("/admin/psychology/videos/{videoId}")
     public ResponseEntity<Map<String, Object>> updateAdminPsychologyVideo(@PathVariable long videoId,
-                                                                          @RequestBody(required = false) Map<String, Object> data) {
-        return service.updateAdminPsychologyVideo(videoId, data);
+                                                                          @Valid @RequestBody(required = false) AdminPsychologyVideoUpdateRequest data) {
+        return service.updateAdminPsychologyVideo(videoId, data == null ? Map.of() : data.toMap());
     }
 
     @PostMapping("/admin/psychology/questions")
-    public ResponseEntity<Map<String, Object>> createAdminPsychologyQuestion(@RequestBody(required = false) Map<String, Object> data) {
-        return service.createAdminPsychologyQuestion(data);
+    public ResponseEntity<Map<String, Object>> createAdminPsychologyQuestion(@Valid @RequestBody(required = false) AdminPsychologyQuestionCreateRequest data) {
+        return service.createAdminPsychologyQuestion(data == null ? Map.of() : data.toMap());
     }
 
     @PutMapping("/admin/psychology/questions/{questionId}")
     public ResponseEntity<Map<String, Object>> updateAdminPsychologyQuestion(@PathVariable long questionId,
-                                                                             @RequestBody(required = false) Map<String, Object> data) {
-        return service.updateAdminPsychologyQuestion(questionId, data);
+                                                                             @Valid @RequestBody(required = false) AdminPsychologyQuestionUpdateRequest data) {
+        return service.updateAdminPsychologyQuestion(questionId, data == null ? Map.of() : data.toMap());
     }
 
     @GetMapping("/psychology/questions/{questionId}")
@@ -499,13 +567,14 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/consultations")
-    public ResponseEntity<Map<String, Object>> createConsultation(@RequestBody Map<String, Object> data) {
-        return service.createConsultation(data);
+    public ResponseEntity<Map<String, Object>> createConsultation(@Valid @RequestBody(required = false) ConsultationCreateRequest data) {
+        return service.createConsultation(data == null ? null : data.toMap());
     }
 
     @PutMapping("/consultations/{consultationId}")
-    public ResponseEntity<Map<String, Object>> updateConsultation(@PathVariable long consultationId, @RequestBody Map<String, Object> data) {
-        return service.updateConsultation(consultationId, data);
+    public ResponseEntity<Map<String, Object>> updateConsultation(@PathVariable long consultationId,
+                                                                  @Valid @RequestBody(required = false) ConsultationUpdateRequest data) {
+        return service.updateConsultation(consultationId, data == null ? null : data.toMap());
     }
 
     @PostMapping(value = "/family/media", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -546,9 +615,16 @@ public class KinEchoApiController {
         return service.downloadAiAudio(filename, token);
     }
 
+    @GetMapping("/ai/voice-upload/{filename:.+}")
+    public ResponseEntity<?> downloadAiVoiceUpload(@PathVariable String filename,
+                                                   @RequestParam(required = false) String token) {
+        return service.downloadAiVoiceUpload(filename, token);
+    }
+
     @PutMapping("/family/media/{mediaId}")
-    public ResponseEntity<Map<String, Object>> updateMedia(@PathVariable long mediaId, @RequestBody Map<String, Object> data) {
-        return service.updateMedia(mediaId, data);
+    public ResponseEntity<Map<String, Object>> updateMedia(@PathVariable long mediaId,
+                                                           @Valid @RequestBody(required = false) MediaUpdateRequest data) {
+        return service.updateMedia(mediaId, data == null ? Map.of() : data.toMap());
     }
 
     @DeleteMapping("/family/media/{mediaId}")
@@ -563,13 +639,15 @@ public class KinEchoApiController {
     }
 
     @PostMapping("/elderly/media/{mediaId}/play")
-    public ResponseEntity<Map<String, Object>> recordMediaPlay(@PathVariable long mediaId, @RequestBody Map<String, Object> data) {
-        return service.recordMediaPlay(mediaId, data);
+    public ResponseEntity<Map<String, Object>> recordMediaPlay(@PathVariable long mediaId,
+                                                               @Valid @RequestBody(required = false) MediaPlayRecordRequest data) {
+        return service.recordMediaPlay(mediaId, data == null ? Map.of() : data.toMap());
     }
 
     @PostMapping("/elderly/media/{mediaId}/feedback")
-    public ResponseEntity<Map<String, Object>> submitMediaFeedback(@PathVariable long mediaId, @RequestBody Map<String, Object> data) {
-        return service.submitMediaFeedback(mediaId, data);
+    public ResponseEntity<Map<String, Object>> submitMediaFeedback(@PathVariable long mediaId,
+                                                                   @Valid @RequestBody(required = false) MediaFeedbackRequest data) {
+        return service.submitMediaFeedback(mediaId, data == null ? Map.of() : data.toMap());
     }
 
     @GetMapping("/elderly/media/history")

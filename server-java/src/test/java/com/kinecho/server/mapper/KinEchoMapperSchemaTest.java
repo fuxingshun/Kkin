@@ -49,4 +49,19 @@ class KinEchoMapperSchemaTest {
         verify(jdbc).update("UPDATE schedules SET status = 'pending' WHERE status IS NULL OR status = ''");
         verify(jdbc).update("UPDATE schedules SET is_active = 1 WHERE is_active IS NULL");
     }
+
+    @Test
+    void initializeCreatesDatabaseBackedAuthTables() {
+        KinEchoProperties properties = new KinEchoProperties();
+        properties.setSeedDemoData(false);
+        KinEchoMapper mapper = new KinEchoMapper(jdbc, properties, new ObjectMapper());
+
+        mapper.initialize();
+
+        verify(jdbc).execute(contains("CREATE TABLE IF NOT EXISTS auth_accounts"));
+        verify(jdbc).execute(contains("CREATE TABLE IF NOT EXISTS auth_audit_logs"));
+        verify(jdbc).execute(contains("ALTER TABLE auth_accounts ADD COLUMN password_hash TEXT"));
+        verify(jdbc).execute(contains("ALTER TABLE auth_accounts ADD COLUMN failed_login_count INT DEFAULT 0"));
+        verify(jdbc).update("UPDATE auth_accounts SET failed_login_count = 0 WHERE failed_login_count IS NULL");
+    }
 }

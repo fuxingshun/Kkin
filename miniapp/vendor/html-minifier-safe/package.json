@@ -1,0 +1,10 @@
+{
+  "name": "html-minifier",
+  "version": "99.0.0-kinecho.0",
+  "description": "Compatibility wrapper that routes html-minifier calls to html-minifier-terser.",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "html-minifier-terser": "7.2.0"
+  }
+}

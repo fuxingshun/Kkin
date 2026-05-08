@@ -168,6 +168,19 @@ export interface ApiRetentionSummary {
   }>;
 }
 
+export interface ApiAdminOpsMetric {
+  name: string;
+  value: number;
+  level: 'ok' | 'critical' | string;
+  message?: string;
+}
+
+export interface ApiAdminOpsMetrics {
+  generated_at: string;
+  status: 'ok' | 'degraded' | string;
+  metrics: Record<string, ApiAdminOpsMetric>;
+}
+
 export interface ApiCareInsight {
   family_id: string;
   elderly_id: number;
@@ -409,6 +422,10 @@ export async function getHealth() {
 
 export async function getRetentionSummary() {
   return request<ApiRetentionSummary>('/admin/retention/summary');
+}
+
+export async function getAdminOpsMetrics() {
+  return request<ApiAdminOpsMetrics>('/admin/ops/metrics');
 }
 
 export async function loginAdmin(username: string, password: string) {

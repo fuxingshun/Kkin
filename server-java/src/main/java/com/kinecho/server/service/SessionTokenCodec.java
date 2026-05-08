@@ -22,8 +22,9 @@ public final class SessionTokenCodec {
     public static String create(Map<String, Object> body, KinEchoProperties properties, ObjectMapper mapper) {
         Map<String, Object> payload = new LinkedHashMap<>();
         for (String key : List.of(
-            "role", "user_id", "username", "display_name", "openid",
-            "family_id", "elderly_id", "elderly_name", "family_user_id", "family_name"
+            "role", "user_id", "auth_account_id", "session_version", "username", "display_name", "openid",
+            "family_id", "family_ids", "elderly_id", "elderly_name", "family_user_id", "family_name",
+            "organization_id", "permissions"
         )) {
             Object value = body.get(key);
             if (value != null && !String.valueOf(value).isBlank()) {

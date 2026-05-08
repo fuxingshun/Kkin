@@ -153,14 +153,17 @@ public class AiCompanionService {
     }
 
     public Map<String, Object> voiceChat(MultipartFile file, String user, String origin) throws IOException {
-        if (file == null || file.isEmpty() || file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()) {
-            throw new IllegalArgumentException("missing voice file");
+        UploadSecurityValidator.Result validation = UploadSecurityValidator.validate(file, UploadSecurityValidator.Profile.VOICE_AUDIO);
+        if (!validation.accepted()) {
+            throw new IllegalArgumentException(validation.message());
         }
-        String ext = extension(file.getOriginalFilename(), "mp3");
-        if (!List.of("mp3", "aac", "m4a", "wav", "webm", "ogg", "flac").contains(ext)) {
-            throw new IllegalArgumentException("unsupported voice format: " + ext);
+        String ext = validation.extension();
+        Path voiceRoot = properties.aiVoiceUploadDir.toAbsolutePath().normalize();
+        Files.createDirectories(voiceRoot);
+        Path target = voiceRoot.resolve("voice-" + Instant.now().toEpochMilli() + "." + ext).toAbsolutePath().normalize();
+        if (!target.startsWith(voiceRoot)) {
+            throw new IllegalArgumentException("voice path is outside upload directory");
         }
-        Path target = properties.aiVoiceUploadDir.resolve("voice-" + Instant.now().toEpochMilli() + "." + ext);
         file.transferTo(target);
 
         TranscriptionResult transcription = transcribeAudio(target, origin);
@@ -502,10 +505,17 @@ public class AiCompanionService {
 
     private String bailianVoiceFileUrl(Path file, String origin) {
         String filename = file.getFileName().toString();
+        String token = SessionTokenCodec.createSignedPayload(
+            db.map("purpose", "ai_voice_upload", "file", filename),
+            properties.aiVoiceUploadUrlTtlSeconds,
+            properties,
+            mapper
+        );
+        String path = "api/ai/voice-upload/" + urlEncode(filename) + "?token=" + urlEncode(token);
         if (properties.bailianAsrFileBaseUrl != null && !properties.bailianAsrFileBaseUrl.isBlank()) {
-            return properties.bailianAsrFileBaseUrl.replaceAll("/$", "") + "/uploads/ai-voice/" + filename;
+            return properties.bailianAsrFileBaseUrl.replaceAll("/$", "") + "/" + path;
         }
-        return absoluteAssetUrl(origin, "uploads/ai-voice/" + filename);
+        return absoluteAssetUrl(origin, path);
     }
 
     private String validateBailianFileUrl(String fileUrl) {
@@ -625,14 +635,6 @@ public class AiCompanionService {
 
     private String normalizeUser(String user) {
         return user == null || user.isBlank() ? "User" : user.trim();
-    }
-
-    private String extension(String filename, String fallback) {
-        int dot = filename == null ? -1 : filename.lastIndexOf('.');
-        if (dot < 0 || dot == filename.length() - 1) {
-            return fallback;
-        }
-        return filename.substring(dot + 1).toLowerCase();
     }
 
     private String absoluteAssetUrl(String origin, String relativePath) {

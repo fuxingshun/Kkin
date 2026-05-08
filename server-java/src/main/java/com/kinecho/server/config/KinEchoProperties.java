@@ -23,6 +23,10 @@ public class KinEchoProperties {
     public boolean familyScopeSessionRequired = false;
     public boolean phoneSuffixLoginEnabled = true;
     public String demoLoginPassword = "";
+    public List<String> corsAllowedOrigins = new ArrayList<>(List.of("http://localhost:*", "http://127.0.0.1:*"));
+    public List<String> psychologyVideoAllowedHosts = new ArrayList<>();
+    public boolean staticOperatorLoginEnabled = true;
+    public boolean authBootstrapEnabled = false;
     public String serviceUsername = "service";
     public String servicePassword = "123456";
     public String serviceFamilyId = "family_001";
@@ -36,6 +40,7 @@ public class KinEchoProperties {
     public String aiChatProvider = "bailian";
     public int aiAudioRetentionCount = 32;
     public int aiAudioUrlTtlSeconds = 300;
+    public int aiVoiceUploadUrlTtlSeconds = 300;
     public int aiVoiceRetentionDays = 7;
     public int mentalFrameRetentionDays = 30;
     public int aiChatRetentionDays = 180;
@@ -98,6 +103,9 @@ public class KinEchoProperties {
         if (aiAudioUrlTtlSeconds <= 0) {
             aiAudioUrlTtlSeconds = 300;
         }
+        if (aiVoiceUploadUrlTtlSeconds <= 0) {
+            aiVoiceUploadUrlTtlSeconds = 300;
+        }
         if (aiVoiceRetentionDays <= 0) {
             aiVoiceRetentionDays = 7;
         }
@@ -114,6 +122,11 @@ public class KinEchoProperties {
             auditLogRetentionDays = 365;
         }
         demoLoginPassword = valueOrDefault(demoLoginPassword, "");
+        corsAllowedOrigins = normalizeList(corsAllowedOrigins);
+        if (corsAllowedOrigins.isEmpty()) {
+            corsAllowedOrigins = new ArrayList<>(List.of("http://localhost:*", "http://127.0.0.1:*"));
+        }
+        psychologyVideoAllowedHosts = normalizeList(psychologyVideoAllowedHosts);
         serviceUsername = valueOrDefault(serviceUsername, "service");
         servicePassword = valueOrDefault(servicePassword, "123456");
         serviceFamilyId = valueOrDefault(serviceFamilyId, "family_001");
@@ -170,6 +183,26 @@ public class KinEchoProperties {
 
     public void setDemoLoginPassword(String demoLoginPassword) {
         this.demoLoginPassword = valueOrDefault(demoLoginPassword, this.demoLoginPassword);
+    }
+
+    public void setCorsAllowedOrigins(List<String> corsAllowedOrigins) {
+        if (corsAllowedOrigins != null) {
+            this.corsAllowedOrigins = normalizeList(corsAllowedOrigins);
+        }
+    }
+
+    public void setPsychologyVideoAllowedHosts(List<String> psychologyVideoAllowedHosts) {
+        if (psychologyVideoAllowedHosts != null) {
+            this.psychologyVideoAllowedHosts = normalizeList(psychologyVideoAllowedHosts);
+        }
+    }
+
+    public void setStaticOperatorLoginEnabled(boolean staticOperatorLoginEnabled) {
+        this.staticOperatorLoginEnabled = staticOperatorLoginEnabled;
+    }
+
+    public void setAuthBootstrapEnabled(boolean authBootstrapEnabled) {
+        this.authBootstrapEnabled = authBootstrapEnabled;
     }
 
     public void setServiceUsername(String serviceUsername) {
@@ -298,6 +331,10 @@ public class KinEchoProperties {
         this.aiAudioUrlTtlSeconds = aiAudioUrlTtlSeconds;
     }
 
+    public void setAiVoiceUploadUrlTtlSeconds(int aiVoiceUploadUrlTtlSeconds) {
+        this.aiVoiceUploadUrlTtlSeconds = aiVoiceUploadUrlTtlSeconds;
+    }
+
     public void setAiVoiceRetentionDays(int aiVoiceRetentionDays) {
         this.aiVoiceRetentionDays = aiVoiceRetentionDays;
     }
@@ -391,6 +428,26 @@ public class KinEchoProperties {
         String result = valueOrDefault(value, "");
         while (result.endsWith("/")) {
             result = result.substring(0, result.length() - 1);
+        }
+        return result;
+    }
+
+    private static List<String> normalizeList(List<String> values) {
+        if (values == null) {
+            return new ArrayList<>();
+        }
+        List<String> result = new ArrayList<>();
+        for (String value : values) {
+            if (value == null) {
+                continue;
+            }
+            String[] parts = value.split(",");
+            for (String part : parts) {
+                String trimmed = part.trim();
+                if (!trimmed.isBlank()) {
+                    result.add(trimmed);
+                }
+            }
         }
         return result;
     }

@@ -1,0 +1,7 @@
+{
+  "name": "download-git-repo",
+  "version": "99.0.0-kinecho.0",
+  "description": "KinEcho build-only stub that disables template repository downloads in Taro CLI.",
+  "main": "index.js",
+  "license": "MIT"
+}

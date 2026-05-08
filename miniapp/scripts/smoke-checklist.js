@@ -147,6 +147,41 @@ async function main() {
   const serviceSession = readText('miniapp/src/utils/serviceSession.ts');
   const adminApi = readText('src/admin/api.ts');
   const adminMain = readText('src/admin/main.tsx');
+  const serverPom = readText('server-java/pom.xml');
+  const apiExceptionHandler = readText('server-java/src/main/java/com/kinecho/server/config/ApiExceptionHandler.java');
+  const openApiConfig = readText('server-java/src/main/java/com/kinecho/server/config/OpenApiConfig.java');
+  const adminAuthCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/AdminAuthAccountCreateRequest.java');
+  const adminAuthUpdateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/AdminAuthAccountUpdateRequest.java');
+  const privacyRequestCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/PrivacyRequestCreateRequest.java');
+  const privacyRequestReviewDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/PrivacyRequestReviewRequest.java');
+  const serviceCertificationSubmitDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ServiceCertificationSubmitRequest.java');
+  const serviceCertificationReviewDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ServiceCertificationReviewRequest.java');
+  const userCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/UserCreateRequest.java');
+  const userUpdateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/UserUpdateRequest.java');
+  const serviceFollowupCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ServiceFollowupCreateRequest.java');
+  const serviceFollowupStatusDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ServiceFollowupStatusRequest.java');
+  const serviceRecordCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ServiceRecordCreateRequest.java');
+  const consultationCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ConsultationCreateRequest.java');
+  const consultationUpdateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ConsultationUpdateRequest.java');
+  const scheduleCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ScheduleCreateRequest.java');
+  const scheduleUpdateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ScheduleUpdateRequest.java');
+  const scheduleStatusDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ScheduleStatusRequest.java');
+  const familyAlertCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/FamilyAlertCreateRequest.java');
+  const familyAlertHandleDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/FamilyAlertHandleRequest.java');
+  const familyAlertReplyDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/FamilyAlertReplyRequest.java');
+  const familyMessageCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/FamilyMessageCreateRequest.java');
+  const consentRecordCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ConsentRecordCreateRequest.java');
+  const familyBindByCodeDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/FamilyBindByCodeRequest.java');
+  const elderlyAlertCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ElderlyAlertCreateRequest.java');
+  const elderlyMoodCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/ElderlyMoodCreateRequest.java');
+  const mediaUpdateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/MediaUpdateRequest.java');
+  const mediaPlayRecordDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/MediaPlayRecordRequest.java');
+  const mediaFeedbackDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/MediaFeedbackRequest.java');
+  const adminCounselorUpdateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/AdminCounselorUpdateRequest.java');
+  const adminPsychologyVideoCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/AdminPsychologyVideoCreateRequest.java');
+  const adminPsychologyVideoUpdateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/AdminPsychologyVideoUpdateRequest.java');
+  const adminPsychologyQuestionCreateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/AdminPsychologyQuestionCreateRequest.java');
+  const adminPsychologyQuestionUpdateDto = readText('server-java/src/main/java/com/kinecho/server/controller/dto/AdminPsychologyQuestionUpdateRequest.java');
   const apiTokenInterceptor = readText('server-java/src/main/java/com/kinecho/server/config/ApiTokenInterceptor.java');
   const webConfig = readText('server-java/src/main/java/com/kinecho/server/config/WebConfig.java');
   const familyScopeInterceptor = readText('server-java/src/main/java/com/kinecho/server/config/FamilyScopeInterceptor.java');
@@ -256,6 +291,59 @@ async function main() {
     'service domain api client methods',
     includesAll(serviceService, ['getServiceTasks', 'getServiceCases', 'getServiceCaseDetail', 'getServiceFollowups', 'createServiceRecord', '/service/tasks', '/service/cases', '/service/followups', '/service/records']),
     'miniapp/src/services/service.ts'
+  );
+
+  addCheck(
+    'service workflow dto validation',
+    includesAll(userController, ['ServiceFollowupCreateRequest', 'ServiceFollowupStatusRequest', 'ServiceRecordCreateRequest']) &&
+      includesAll(serviceFollowupCreateDto, ['record ServiceFollowupCreateRequest', '@Schema', '@NotBlank', '@Pattern', 'consultation_type', 'scheduled_time', 'toMap()']) &&
+      includesAll(serviceFollowupStatusDto, ['record ServiceFollowupStatusRequest', '@Schema', '@Pattern', 'cancel_reason', 'toMap()']) &&
+      includesAll(serviceRecordCreateDto, ['record ServiceRecordCreateRequest', '@Schema', '@NotBlank', 'alert_id', 'content', 'toMap()']),
+    'service workflow writes should use DTO validation and schema metadata'
+  );
+
+  addCheck(
+    'schedule dto validation',
+    includesAll(userController, ['ScheduleCreateRequest', 'ScheduleUpdateRequest', 'ScheduleStatusRequest']) &&
+      includesAll(scheduleCreateDto, ['record ScheduleCreateRequest', '@Schema', '@NotBlank', 'schedule_type', 'schedule_time', 'repeat_type', 'auto_remind', 'toMap()']) &&
+      includesAll(scheduleUpdateDto, ['record ScheduleUpdateRequest', '@Schema', '@Pattern', 'repeat_days', 'status', 'toMap()']) &&
+      includesAll(scheduleStatusDto, ['record ScheduleStatusRequest', '@Schema', '@NotBlank', 'elderly_id', 'toMap()']),
+    'family and elderly schedule writes should use DTO validation and schema metadata'
+  );
+
+  addCheck(
+    'family communication dto validation',
+    includesAll(userController, ['FamilyAlertCreateRequest', 'FamilyAlertHandleRequest', 'FamilyAlertReplyRequest', 'FamilyMessageCreateRequest']) &&
+      includesAll(familyAlertCreateDto, ['record FamilyAlertCreateRequest', '@Schema', '@NotBlank', '@Pattern', 'alert_type', 'metadata', 'toMap()']) &&
+      includesAll(familyAlertHandleDto, ['record FamilyAlertHandleRequest', '@Schema', '@NotBlank', 'handled_by', 'reply_message', 'toMap()']) &&
+      includesAll(familyAlertReplyDto, ['record FamilyAlertReplyRequest', '@Schema', '@NotBlank', 'reply_message', 'toMap()']) &&
+      includesAll(familyMessageCreateDto, ['record FamilyMessageCreateRequest', '@Schema', '@NotBlank', 'sender_name', 'sender_relation', 'scheduled_time', 'toMap()']),
+    'family alert and message writes should use DTO validation and schema metadata'
+  );
+
+  addCheck(
+    'privacy consent and binding dto validation',
+    includesAll(userController, ['ConsentRecordCreateRequest', 'FamilyBindByCodeRequest']) &&
+      includesAll(consentRecordCreateDto, ['record ConsentRecordCreateRequest', '@Schema', '@NotBlank', 'consent_type', 'actor_role', 'metadata', 'toMap()']) &&
+      includesAll(familyBindByCodeDto, ['record FamilyBindByCodeRequest', '@Schema', '@NotBlank', 'binding_code', 'wechat_openid', 'toMap()']),
+    'privacy consent and family binding writes should use DTO validation and schema metadata'
+  );
+
+  addCheck(
+    'elderly care dto validation',
+    includesAll(userController, ['ElderlyAlertCreateRequest', 'ElderlyMoodCreateRequest']) &&
+      includesAll(elderlyAlertCreateDto, ['record ElderlyAlertCreateRequest', '@Schema', '@NotBlank', '@Pattern', 'alert_type', 'metadata', 'toMap()']) &&
+      includesAll(elderlyMoodCreateDto, ['record ElderlyMoodCreateRequest', '@Schema', '@NotBlank', '@Pattern', 'mood_type', 'mood_score', 'recorded_at', 'toMap()']),
+    'elderly alert and mood writes should use DTO validation and schema metadata'
+  );
+
+  addCheck(
+    'media interaction dto validation',
+    includesAll(userController, ['MediaUpdateRequest', 'MediaPlayRecordRequest', 'MediaFeedbackRequest']) &&
+      includesAll(mediaUpdateDto, ['record MediaUpdateRequest', '@Schema', '@NotBlank', 'time_windows', 'cooldown', 'priority', 'toMap()']) &&
+      includesAll(mediaPlayRecordDto, ['record MediaPlayRecordRequest', '@Schema', '@NotNull', 'duration_watched', 'triggered_by', 'toMap()']) &&
+      includesAll(mediaFeedbackDto, ['record MediaFeedbackRequest', '@Schema', '@Pattern', 'feedback_type', 'toMap()']),
+    'media update, play and feedback writes should use DTO validation and schema metadata'
   );
 
   addCheck(
@@ -395,13 +483,14 @@ async function main() {
   );
 
   addCheck(
-    'ai tts audio uses signed temporary urls',
+    'ai audio assets use signed temporary urls',
     !webConfig.includes('addResourceHandler("/uploads/ai-audio/**")') &&
-      includesAll(webConfig, ['"/api/ai/audio/**"', 'addResourceHandler("/uploads/ai-voice/**")']) &&
-      includesAll(userController, ['@GetMapping("/ai/audio/{filename:.+}")']) &&
-      includesAll(userService, ['downloadAiAudio', 'verifySignedPayload', 'invalid or expired audio token', 'aiAudioUrlTtlSeconds']) &&
-      includesAll(aiCompanionService, ['signedAiAudioUrl', 'createSignedPayload', 'api/ai/audio/']),
-    'AI TTS playback should use a short-lived signed URL while ASR voice files stay provider-readable'
+      !webConfig.includes('addResourceHandler("/uploads/ai-voice/**")') &&
+      includesAll(webConfig, ['"/api/ai/audio/**"', '"/api/ai/voice-upload/**"']) &&
+      includesAll(userController, ['@GetMapping("/ai/audio/{filename:.+}")', '@GetMapping("/ai/voice-upload/{filename:.+}")']) &&
+      includesAll(userService, ['downloadAiAudio', 'downloadAiVoiceUpload', 'verifySignedPayload', 'invalid or expired audio token', 'invalid or expired voice upload token']) &&
+      includesAll(aiCompanionService, ['signedAiAudioUrl', 'createSignedPayload', 'api/ai/audio/', 'api/ai/voice-upload/']),
+    'AI TTS and ASR upload playback should both use short-lived signed URLs'
   );
 
   addCheck(
@@ -419,13 +508,18 @@ async function main() {
   addCheck(
     'admin service certification review clients',
     includesAll(adminApi, ['getServiceCertifications', '/admin/service-certifications', 'reviewServiceCertification']) &&
-      includesAll(adminMain, ['服务认证审核', "getServiceCertifications('pending')", 'reviewServiceCertification']),
+      includesAll(adminMain, ['服务认证审核', "getServiceCertifications('pending')", 'reviewServiceCertification']) &&
+      includesAll(userController, ['ServiceCertificationSubmitRequest', 'ServiceCertificationReviewRequest']) &&
+      includesAll(serviceCertificationSubmitDto, ['record ServiceCertificationSubmitRequest', '@Schema', '@NotBlank', 'staff_no', 'toMap()']) &&
+      includesAll(serviceCertificationReviewDto, ['record ServiceCertificationReviewRequest', '@Schema', '@Pattern', 'reject_reason', 'toMap()']),
     'admin service certification review surface'
   );
 
   addCheck(
     'admin counselor management clients',
     includesAll(userController, ['@GetMapping("/admin/counselors")', '@PutMapping("/admin/counselors/{counselorId}")']) &&
+      includesAll(userController, ['AdminCounselorUpdateRequest']) &&
+      includesAll(adminCounselorUpdateDto, ['record AdminCounselorUpdateRequest', '@Schema', 'available', 'is_active', 'availability_text', 'calendar', 'toMap()']) &&
       includesAll(userService, ['getAdminCounselors', 'updateAdminCounselor', 'UPDATE counselors SET']) &&
       includesAll(adminApi, ['getAdminCounselors', '/admin/counselors', 'updateAdminCounselor', 'ApiCounselor']) &&
       includesAll(adminMain, ['咨询师管理', 'getAdminCounselors', 'updateAdminCounselor', '暂停接单', '开放预约']),
@@ -435,6 +529,11 @@ async function main() {
   addCheck(
     'admin psychology content inventory',
     includesAll(adminApi, ['getPsychologyResources', '/psychology/resources', 'createPsychologyVideo', 'updatePsychologyVideo', 'createPsychologyQuestion', 'updatePsychologyQuestion', 'ApiPsychologyResources']) &&
+      includesAll(userController, ['AdminPsychologyVideoCreateRequest', 'AdminPsychologyVideoUpdateRequest', 'AdminPsychologyQuestionCreateRequest', 'AdminPsychologyQuestionUpdateRequest']) &&
+      includesAll(adminPsychologyVideoCreateDto, ['record AdminPsychologyVideoCreateRequest', '@Schema', '@NotBlank', 'source_url', 'cover_class_name', 'takeaways', 'toMap()']) &&
+      includesAll(adminPsychologyVideoUpdateDto, ['record AdminPsychologyVideoUpdateRequest', '@Schema', 'source_url', 'sort_order', 'is_active', 'toMap()']) &&
+      includesAll(adminPsychologyQuestionCreateDto, ['record AdminPsychologyQuestionCreateRequest', '@Schema', '@NotBlank', 'question', 'sort_order', 'toMap()']) &&
+      includesAll(adminPsychologyQuestionUpdateDto, ['record AdminPsychologyQuestionUpdateRequest', '@Schema', 'question', 'is_active', 'toMap()']) &&
       includesAll(adminMain, ['心理内容库', 'getPsychologyResources', 'createPsychologyVideo', 'updatePsychologyVideo', 'createPsychologyQuestion', 'updatePsychologyQuestion', 'reply_count']),
     'admin content management should expose psychology inventory'
   );
@@ -483,8 +582,30 @@ async function main() {
       '@PutMapping("/admin/service-certifications/{certificationId}")',
       '@GetMapping("/admin/service-summary")',
       '@GetMapping("/admin/analytics")',
-    ]),
+    ]) &&
+      includesAll(userController, ['UserCreateRequest', 'UserUpdateRequest']) &&
+      includesAll(userCreateDto, ['record UserCreateRequest', '@Schema', '@NotBlank', '@Pattern', 'user_type', 'family_id', 'toMap()']) &&
+      includesAll(userUpdateDto, ['record UserUpdateRequest', '@Schema', '@NotBlank', 'family_id', 'toMap()']),
     'KinEchoApiController.java'
+  );
+
+  addCheck(
+    'admin auth account dto validation',
+      includesAll(serverPom, ['spring-boot-starter-validation']) &&
+      includesAll(userController, ['AdminAuthAccountCreateRequest', 'AdminAuthAccountUpdateRequest', '@Valid @RequestBody(required = false)']) &&
+      includesAll(adminAuthCreateDto, ['record AdminAuthAccountCreateRequest', '@Schema', '@NotBlank', '@Pattern', '@Size', 'toMap()', 'display_name', 'user_id']) &&
+      includesAll(adminAuthUpdateDto, ['record AdminAuthAccountUpdateRequest', '@Schema', '@Size', 'confirmation', 'toMap()', 'confirmed']) &&
+      includesAll(apiExceptionHandler, ['@RestControllerAdvice', 'MethodArgumentNotValidException', 'VALIDATION_ERROR', 'request_id']),
+    'admin account lifecycle writes should use DTO validation and structured errors'
+  );
+
+  addCheck(
+    'java openapi contract skeleton',
+    includesAll(serverPom, ['springdoc-openapi-starter-webmvc-ui']) &&
+      includesAll(openApiConfig, ['KinEcho API', 'GroupedOpenApi', 'admin-api', 'service-api', 'miniapp-api', 'apiToken', 'sessionToken']) &&
+      includesAll(appYml, ['springdoc:', 'KINECHO_OPENAPI_ENABLED', '/v3/api-docs', '/swagger-ui.html']) &&
+      includesAll(prodExampleYml, ['KINECHO_OPENAPI_ENABLED:false', 'KINECHO_SWAGGER_UI_ENABLED:false']),
+    'backend should expose an OpenAPI skeleton for grouped API docs'
   );
 
   addCheck(
@@ -528,6 +649,9 @@ async function main() {
       includesAll(loginPage, ['recordVerifiedLoginConsents', 'user-agreement', 'privacy-policy', 'LOGIN_CONSENT_VERSION']) &&
       includesAll(adminApi, ['getPrivacyRequests', '/admin/privacy/requests', 'reviewPrivacyRequest']) &&
       includesAll(adminMain, ['隐私请求队列', 'getPrivacyRequests(selectedFamilyId', 'reviewPrivacyRequest']) &&
+      includesAll(userController, ['PrivacyRequestCreateRequest', 'PrivacyRequestReviewRequest']) &&
+      includesAll(privacyRequestCreateDto, ['record PrivacyRequestCreateRequest', '@Schema', '@NotBlank', '@Pattern', 'request_type', 'family_id', 'toMap()']) &&
+      includesAll(privacyRequestReviewDto, ['record PrivacyRequestReviewRequest', '@Schema', '@Pattern', 'process_note', 'toMap()']) &&
       miniappAuth.includes('miniapp-login') &&
       includesAll(familyProfilePage, ['handleExportData', 'submitPrivacyRequest', 'exportFamilyData', 'createPrivacyRequest', '导出家庭数据', '提交删除请求']),
     'privacy consent records, family data export, and deletion request workflow'
@@ -541,6 +665,15 @@ async function main() {
       includesAll(adminApi, ['getRetentionSummary', '/admin/retention/summary', 'ApiRetentionSummary']) &&
       includesAll(adminMain, ['保留策略', 'getRetentionSummary', 'ai_audio_retention_count']),
     'backend and admin should expose pilot retention policy'
+  );
+
+  addCheck(
+    'admin ops metrics surface',
+    includesAll(userController, ['@GetMapping("/admin/ops/metrics")', 'service.getAdminOpsMetrics()']) &&
+      includesAll(userService, ['getAdminOpsMetrics', 'open_alerts', 'pending_privacy_requests', 'locked_auth_accounts', 'safeMetricCount']) &&
+      includesAll(adminApi, ['getAdminOpsMetrics', '/admin/ops/metrics', 'ApiAdminOpsMetrics']) &&
+      includesAll(adminMain, ['运维指标总览', 'getAdminOpsMetrics', 'OPS_METRIC_LABELS', 'locked_auth_accounts']),
+    'admin should expose operational health counts'
   );
 
   addCheck(
@@ -617,6 +750,9 @@ async function main() {
       'cancellation reason is required',
     ]) &&
       includesAll(familyService, ['status_label', 'family_visible_summary', 'next_action', 'can_cancel', 'can_reschedule']) &&
+      includesAll(userController, ['ConsultationCreateRequest', 'ConsultationUpdateRequest']) &&
+      includesAll(consultationCreateDto, ['record ConsultationCreateRequest', '@Schema', '@NotBlank', 'notify_service', 'concern_level', 'toMap()']) &&
+      includesAll(consultationUpdateDto, ['record ConsultationUpdateRequest', '@Schema', '@Pattern', 'cancel_reason', 'toMap()']) &&
       includesAll(familyCounselingPage, ['family_visible_summary', 'next_action', 'status_label', 'can_reschedule', 'can_cancel']) &&
       includesAll(serviceService, ['statusLabel', 'familyVisibleSummary', 'nextAction', 'canCancel', 'canReschedule']) &&
       includesAll(serviceWorkspacePage, ['familyVisibleSummary', 'nextAction']) &&

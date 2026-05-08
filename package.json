@@ -10,6 +10,7 @@
     "server:start": "java -jar server-java/target/kinecho-server.jar",
     "server:dev": "mvn spring-boot:run -f server-java/pom.xml",
     "smoke:miniapp": "npm --prefix miniapp run smoke:checklist",
+    "audit:security": "npm audit --audit-level=high && npm --prefix miniapp audit --audit-level=high",
     "backup:pilot": "scripts/backup-pilot.cmd",
     "start:all": "scripts/start-all.cmd",
     "stop:all": "scripts/stop-all.cmd"
