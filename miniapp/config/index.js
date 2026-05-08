@@ -102,6 +102,12 @@ const config = {
     options: {},
   },
   mini: {
+    optimizeMainPackage: {
+      enable: true,
+    },
+    webpackChain(chain) {
+      chain.performance.hints(false);
+    },
     postcss: {
       pxtransform: {
         enable: true,

@@ -8,6 +8,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.io.FileSystemResource;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,6 +48,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -87,6 +89,50 @@ public class KinEchoApiService {
             case "admin" -> loginOperator("admin", username, password, properties.adminUsername, properties.adminPassword, properties.adminDisplayName);
             default -> bad("invalid role");
         };
+    }
+
+    public ResponseEntity<Map<String, Object>> me(String sessionToken, String authorization) {
+        String token = extractSessionToken(sessionToken, authorization);
+        if (blank(token)) {
+            return unauthorized("missing session token");
+        }
+
+        Map<String, Object> payload = verifySessionToken(token);
+        if (payload == null) {
+            return unauthorized("invalid session token");
+        }
+
+        String role = db.string(payload.get("role"));
+        Map<String, Object> user = db.map(
+            "role", role,
+            "user_id", payload.get("user_id"),
+            "username", payload.get("username"),
+            "display_name", payload.get("display_name"),
+            "openid", payload.get("openid")
+        );
+
+        String familyId = db.string(payload.get("family_id"));
+        if (!blank(familyId)) {
+            user.put("family_id", familyId);
+        }
+        if (payload.containsKey("elderly_id")) {
+            user.put("elderly_id", payload.get("elderly_id"));
+            user.put("elderly_name", payload.get("elderly_name"));
+        }
+        if (payload.containsKey("family_user_id")) {
+            user.put("family_user_id", payload.get("family_user_id"));
+            user.put("family_name", payload.get("family_name"));
+        }
+
+        return ok(db.map(
+            "success", true,
+            "role", role,
+            "user", user,
+            "family_id", familyId,
+            "elderly_id", payload.get("elderly_id"),
+            "elderly_bound", payload.containsKey("elderly_id"),
+            "session_expires_at", payload.get("exp")
+        ));
     }
 
     public ResponseEntity<Map<String, Object>> wechatLogin(Map<String, Object> data) {
@@ -214,6 +260,70 @@ public class KinEchoApiService {
         }
 
         return ok(db.map("success", true, "status", "pending"));
+    }
+
+    public ResponseEntity<Map<String, Object>> getServiceCertifications(String status, int limit) {
+        String normalizedStatus = db.string(status).trim().toLowerCase(Locale.ROOT);
+        if (!blank(normalizedStatus) && !List.of("pending", "approved", "rejected").contains(normalizedStatus)) {
+            return bad("unsupported status");
+        }
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> certifications = blank(normalizedStatus)
+            ? db.list("""
+                SELECT id, wechat_openid, name, phone, staff_no, organization, status,
+                       reject_reason, reviewer, reviewed_at, created_at, updated_at
+                FROM service_certifications
+                ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+                LIMIT ?
+                """, safeLimit)
+            : db.list("""
+                SELECT id, wechat_openid, name, phone, staff_no, organization, status,
+                       reject_reason, reviewer, reviewed_at, created_at, updated_at
+                FROM service_certifications
+                WHERE status = ?
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+                """, normalizedStatus, safeLimit);
+        return ok(db.map(
+            "certifications", certifications,
+            "status", normalizedStatus,
+            "limit", safeLimit,
+            "total", certifications.size()
+        ));
+    }
+
+    public ResponseEntity<Map<String, Object>> reviewServiceCertification(long certificationId, Map<String, Object> data) {
+        if (certificationId <= 0) {
+            return bad("invalid certification id");
+        }
+        Map<String, Object> body = data == null ? Map.of() : data;
+        String status = db.string(body.get("status")).trim().toLowerCase(Locale.ROOT);
+        if (!List.of("approved", "rejected").contains(status)) {
+            return bad("status must be approved or rejected");
+        }
+        String reviewer = db.string(value(body, "reviewer", "admin")).trim();
+        if (blank(reviewer)) {
+            reviewer = "admin";
+        }
+        String rejectReason = db.string(value(body, "reject_reason", body.get("reason"))).trim();
+        if ("rejected".equals(status) && blank(rejectReason)) {
+            return bad("reject_reason is required");
+        }
+        int updated = db.update("""
+            UPDATE service_certifications
+            SET status = ?, reviewer = ?, reject_reason = ?, reviewed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, status, reviewer, "approved".equals(status) ? "" : rejectReason, certificationId);
+        if (updated == 0) {
+            return notFound("service certification not found");
+        }
+        return ok(db.map(
+            "success", true,
+            "certification_id", certificationId,
+            "status", status,
+            "reviewer", reviewer,
+            "reject_reason", "approved".equals(status) ? "" : rejectReason
+        ));
     }
 
     public ResponseEntity<Map<String, Object>> getFamilySchedules(String family_id) {
@@ -887,6 +997,191 @@ public class KinEchoApiService {
         ));
     }
 
+    public ResponseEntity<Map<String, Object>> recordConsent(Map<String, Object> data) {
+        Map<String, Object> body = data == null ? Map.of() : data;
+        String familyId = db.string(body.get("family_id"));
+        String consentType = db.string(body.get("consent_type"));
+        String version = db.string(value(body, "version", body.get("consent_version")));
+        if (blank(familyId) || blank(consentType) || blank(version)) {
+            return bad("missing required parameters");
+        }
+
+        Object elderlyId = normalizedElderlyId(body.get("elderly_id"));
+        Object userId = normalizedElderlyId(body.get("user_id"));
+        int accepted = consentAccepted(value(body, "accepted", true)) ? 1 : 0;
+        String actorRole = db.string(value(body, "actor_role", "family"));
+        String actorName = db.string(value(body, "actor_name", actorRole));
+        String source = db.string(value(body, "source", "miniapp"));
+        long id = db.insert("""
+            INSERT INTO consent_records (
+                family_id, elderly_id, user_id, consent_type, version, accepted,
+                actor_role, actor_name, source, metadata
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, familyId, elderlyId, userId, consentType, version, accepted,
+            actorRole, actorName, source, db.toJson(value(body, "metadata", Map.of())));
+        auditCareAction(familyId, elderlyId, actorRole, actorName, "consent_recorded",
+            "记录用户同意" + consentType + "@" + version,
+            db.map("consent_id", id, "accepted", accepted == 1, "source", source));
+        return created(db.map("success", true, "consent_id", id));
+    }
+
+    public ResponseEntity<Map<String, Object>> getConsentRecords(String familyId, Long elderlyId) {
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+        List<Map<String, Object>> records = elderlyId != null && elderlyId > 0
+            ? db.list("""
+                SELECT * FROM consent_records
+                WHERE family_id = ? AND elderly_id = ?
+                ORDER BY created_at DESC
+                LIMIT 100
+                """, familyId, elderlyId)
+            : db.list("""
+                SELECT * FROM consent_records
+                WHERE family_id = ?
+                ORDER BY created_at DESC
+                LIMIT 100
+                """, familyId);
+        return ok("consents", records);
+    }
+
+    public ResponseEntity<Map<String, Object>> exportFamilyData(String familyId) {
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("users", db.list("SELECT id, user_type, name, phone, family_id, binding_code, is_active, created_at, updated_at, deleted_at, deleted_by FROM users WHERE family_id = ? ORDER BY id", familyId));
+        data.put("schedules", db.list("SELECT * FROM schedules WHERE family_id = ? ORDER BY schedule_time DESC", familyId));
+        data.put("family_messages", db.list("SELECT * FROM family_messages WHERE family_id = ? ORDER BY created_at DESC", familyId));
+        data.put("family_alerts", db.list("SELECT * FROM family_alerts WHERE family_id = ? ORDER BY created_at DESC", familyId));
+        data.put("mood_records", db.list("SELECT * FROM mood_records WHERE family_id = ? ORDER BY recorded_at DESC", familyId));
+        data.put("mental_screenings", db.list("SELECT * FROM mental_screenings WHERE family_id = ? ORDER BY created_at DESC", familyId));
+        data.put("consultations", db.list("SELECT * FROM consultations WHERE family_id = ? ORDER BY created_at DESC", familyId));
+        data.put("media", db.list("SELECT id, family_id, media_type, title, description, file_size, duration, uploaded_by, is_active, created_at, updated_at FROM media WHERE family_id = ? ORDER BY created_at DESC", familyId));
+        data.put("consent_records", db.list("SELECT * FROM consent_records WHERE family_id = ? ORDER BY created_at DESC", familyId));
+        data.put("privacy_requests", db.list("SELECT * FROM privacy_requests WHERE family_id = ? ORDER BY created_at DESC", familyId));
+        data.put("care_audit_logs", db.list("SELECT * FROM care_audit_logs WHERE family_id = ? ORDER BY created_at DESC LIMIT 500", familyId));
+        auditCareAction(familyId, null, "family", "family", "privacy_data_exported",
+            "导出家庭数据", db.map("sections", data.keySet()));
+        return ok(db.map(
+            "success", true,
+            "family_id", familyId,
+            "exported_at", LocalDateTime.now(properties.zoneId).format(DATE_TIME),
+            "data", data
+        ));
+    }
+
+    public ResponseEntity<Map<String, Object>> createPrivacyRequest(Map<String, Object> data) {
+        Map<String, Object> body = data == null ? Map.of() : data;
+        String familyId = db.string(body.get("family_id"));
+        String requestType = db.string(body.get("request_type"));
+        if (blank(familyId) || blank(requestType)) {
+            return bad("missing required parameters");
+        }
+        if (!List.of("export", "delete", "correction").contains(requestType)) {
+            return bad("unsupported request_type");
+        }
+        Object elderlyId = normalizedElderlyId(body.get("elderly_id"));
+        String requestedBy = db.string(value(body, "requested_by", "family"));
+        String reason = db.string(value(body, "reason", ""));
+        long id = db.insert("""
+            INSERT INTO privacy_requests (family_id, elderly_id, request_type, status, requested_by, reason, metadata)
+            VALUES (?, ?, ?, 'pending', ?, ?, ?)
+            """, familyId, elderlyId, requestType, requestedBy, reason, db.toJson(value(body, "metadata", Map.of())));
+        auditCareAction(familyId, elderlyId, "family", requestedBy, "privacy_request_created",
+            "创建隐私请求" + requestType, db.map("request_id", id, "reason", reason));
+        return created(db.map("success", true, "request_id", id, "status", "pending"));
+    }
+
+    public ResponseEntity<Map<String, Object>> getPrivacyRequests(String familyId, String status, int limit) {
+        String normalizedStatus = db.string(status).trim().toLowerCase(Locale.ROOT);
+        if (!blank(normalizedStatus) && !List.of("pending", "processing", "completed", "rejected").contains(normalizedStatus)) {
+            return bad("unsupported status");
+        }
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> requests;
+        if (blank(familyId) && blank(normalizedStatus)) {
+            requests = db.list("""
+                SELECT *
+                FROM privacy_requests
+                ORDER BY CASE WHEN status = 'pending' THEN 0 WHEN status = 'processing' THEN 1 ELSE 2 END,
+                         updated_at DESC, id DESC
+                LIMIT ?
+                """, safeLimit);
+        } else if (blank(familyId)) {
+            requests = db.list("""
+                SELECT *
+                FROM privacy_requests
+                WHERE status = ?
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+                """, normalizedStatus, safeLimit);
+        } else if (blank(normalizedStatus)) {
+            requests = db.list("""
+                SELECT *
+                FROM privacy_requests
+                WHERE family_id = ?
+                ORDER BY CASE WHEN status = 'pending' THEN 0 WHEN status = 'processing' THEN 1 ELSE 2 END,
+                         updated_at DESC, id DESC
+                LIMIT ?
+                """, familyId, safeLimit);
+        } else {
+            requests = db.list("""
+                SELECT *
+                FROM privacy_requests
+                WHERE family_id = ? AND status = ?
+                ORDER BY updated_at DESC, id DESC
+                LIMIT ?
+                """, familyId, normalizedStatus, safeLimit);
+        }
+        return ok(db.map("requests", requests, "family_id", familyId, "status", normalizedStatus, "limit", safeLimit, "total", requests.size()));
+    }
+
+    public ResponseEntity<Map<String, Object>> reviewPrivacyRequest(long requestId, Map<String, Object> data) {
+        if (requestId <= 0) {
+            return bad("invalid request id");
+        }
+        Map<String, Object> body = data == null ? Map.of() : data;
+        String status = db.string(body.get("status")).trim().toLowerCase(Locale.ROOT);
+        if (!List.of("processing", "completed", "rejected").contains(status)) {
+            return bad("status must be processing, completed or rejected");
+        }
+        String reviewer = db.string(value(body, "reviewer", "admin")).trim();
+        if (blank(reviewer)) {
+            reviewer = "admin";
+        }
+        String processNote = db.string(value(body, "process_note", body.get("reason"))).trim();
+        if ("rejected".equals(status) && blank(processNote)) {
+            return bad("process_note is required");
+        }
+
+        Map<String, Object> current = db.one("""
+            SELECT id, family_id, elderly_id, request_type, status
+            FROM privacy_requests
+            WHERE id = ?
+            LIMIT 1
+            """, requestId).orElse(null);
+        if (current == null) {
+            return notFound("privacy request not found");
+        }
+
+        int updated = db.update("""
+            UPDATE privacy_requests
+            SET status = ?, processed_by = ?, process_note = ?, processed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """, status, reviewer, processNote, requestId);
+        if (updated == 0) {
+            return notFound("privacy request not found");
+        }
+
+        String familyId = db.string(current.get("family_id"));
+        auditCareAction(familyId, current.get("elderly_id"), "admin", reviewer, "privacy_request_reviewed",
+            "隐私请求处理为 " + status,
+            db.map("request_id", requestId, "request_type", current.get("request_type"), "previous_status", current.get("status"), "process_note", processNote));
+        return ok(db.map("success", true, "request_id", requestId, "status", status, "reviewer", reviewer, "process_note", processNote));
+    }
+
     public ResponseEntity<Map<String, Object>> createLiveMentalScreening(MultipartFile frame,
                                                                          String familyId,
                                                                          Long elderlyId,
@@ -1450,7 +1745,7 @@ public class KinEchoApiService {
             String taskStatus = db.boolValue(row.get("handled"))
                 ? "completed"
                 : db.boolValue(row.get("task_read")) ? "processing" : "pending";
-            tasks.add(db.map(
+            Map<String, Object> task = db.map(
                 "id", db.longValue(row.get("id"), 0),
                 "alert_id", db.longValue(row.get("alert_id"), 0),
                 "elderly_id", db.longValue(row.get("elderly_id"), 0),
@@ -1460,9 +1755,54 @@ public class KinEchoApiService {
                 "priority", normalizePriority(db.string(row.get("level"))),
                 "status", taskStatus,
                 "created_at", db.string(row.get("created_at"))
-            ));
+            );
+            attachServiceTaskSla(task, row, taskStatus);
+            tasks.add(task);
         }
         return ok(db.map("tasks", tasks, "limit", limit, "total", tasks.size()));
+    }
+
+    private void attachServiceTaskSla(Map<String, Object> task,
+                                      Map<String, Object> source,
+                                      String taskStatus) {
+        String level = db.string(source.get("level"));
+        String alertType = db.string(source.get("alert_type"));
+        int slaMinutes = serviceTaskSlaMinutes(level, alertType);
+        LocalDateTime createdAt = db.parseDateTime(source.get("created_at"));
+        LocalDateTime deadline = createdAt == null ? null : createdAt.plusMinutes(slaMinutes);
+        LocalDateTime now = LocalDateTime.now(properties.zoneId);
+        boolean completed = "completed".equals(taskStatus);
+        boolean overdue = deadline != null && !completed && now.isAfter(deadline);
+        long remainingMinutes = deadline == null || completed ? 0 : Duration.between(now, deadline).toMinutes();
+        task.put("sla_minutes", slaMinutes);
+        task.put("sla_deadline_at", deadline == null ? "" : deadline.format(DATE_TIME));
+        task.put("overdue", overdue);
+        task.put("remaining_minutes", remainingMinutes);
+        task.put("escalation_hint", serviceTaskEscalationHint(overdue, remainingMinutes, normalizePriority(level)));
+    }
+
+    private int serviceTaskSlaMinutes(String level, String alertType) {
+        if ("ai_crisis".equals(alertType) || "sos_emergency".equals(alertType) || "emergency".equals(alertType)) {
+            return 15;
+        }
+        return switch (normalizePriority(level)) {
+            case "high" -> 30;
+            case "medium" -> 120;
+            default -> 1440;
+        };
+    }
+
+    private String serviceTaskEscalationHint(boolean overdue, long remainingMinutes, String priority) {
+        if (overdue) {
+            return "已超时，请优先联系家属并补充处理记录";
+        }
+        if ("high".equals(priority) && remainingMinutes <= 10) {
+            return "高风险工单即将超时，请尽快处理";
+        }
+        if ("medium".equals(priority) && remainingMinutes <= 30) {
+            return "中风险工单接近处理时限";
+        }
+        return "";
     }
 
     public ResponseEntity<Map<String, Object>> startServiceTask(long alertId) {
@@ -1602,6 +1942,7 @@ public class KinEchoApiService {
             ORDER BY c.scheduled_time ASC, c.id ASC
             LIMIT ?
             """.formatted(query.where), args.toArray());
+        followups.forEach(this::attachConsultationFamilySummary);
         return ok(db.map("family_id", familyId, "followups", followups, "limit", limit));
     }
 
@@ -1622,13 +1963,27 @@ public class KinEchoApiService {
 
     public ResponseEntity<Map<String, Object>> updateServiceFollowupStatus(long consultationId,
                                                                            Map<String, Object> data) {
-        String familyId = db.string(data.get("family_id"));
+        Map<String, Object> body = data == null ? Map.of() : data;
+        String familyId = db.string(body.get("family_id"));
         if (blank(familyId)) {
             return bad("missing family_id");
         }
-        String status = db.string(data.get("status")).trim().toLowerCase();
+        String status = normalizeConsultationStatus(db.string(body.get("status")));
         if (!List.of("scheduled", "in_progress", "completed", "cancelled").contains(status)) {
             return bad("invalid status");
+        }
+        Map<String, Object> current = db.one("""
+            SELECT id, family_id, elderly_id, status, scheduled_time, note
+            FROM consultations
+            WHERE id = ? AND family_id = ?
+            LIMIT 1
+            """, consultationId, familyId).orElse(null);
+        if (current == null) {
+            return notFound("consultation not found");
+        }
+        ResponseEntity<Map<String, Object>> lifecycleCheck = validateConsultationLifecycle(current, body);
+        if (lifecycleCheck != null) {
+            return lifecycleCheck;
         }
         int updated = db.update("""
             UPDATE consultations
@@ -1638,10 +1993,8 @@ public class KinEchoApiService {
         if (updated == 0) {
             return notFound("consultation not found");
         }
-        Map<String, Object> followup = db.one("SELECT elderly_id, note FROM consultations WHERE id = ? AND family_id = ? LIMIT 1",
-            consultationId, familyId).orElse(Map.of());
-        auditCareAction(familyId, followup.get("elderly_id"), "service", "service", "followup_status_updated",
-            "随访状态更新为 " + status, db.map("consultation_id", consultationId, "payload", data));
+        auditCareAction(familyId, current.get("elderly_id"), "service", "service", "followup_status_updated",
+            "随访状态更新为 " + status, db.map("consultation_id", consultationId, "payload", body));
         return ok(db.map("success", true, "consultation_id", consultationId, "status", status));
     }
 
@@ -1872,6 +2225,29 @@ public class KinEchoApiService {
         ));
     }
 
+    public ResponseEntity<Map<String, Object>> getAdminFamilies() {
+        List<Map<String, Object>> families = db.list("""
+            SELECT
+                u.family_id,
+                COUNT(*) AS total_users,
+                SUM(CASE WHEN u.user_type = 'elderly' THEN 1 ELSE 0 END) AS elderly_count,
+                SUM(CASE WHEN u.user_type = 'family' THEN 1 ELSE 0 END) AS family_count,
+                COALESCE(a.open_alerts, 0) AS open_alerts
+            FROM users u
+            LEFT JOIN (
+                SELECT family_id, COUNT(*) AS open_alerts
+                FROM family_alerts
+                WHERE is_active = 1 AND handled = 0 AND alert_type != 'media_display'
+                GROUP BY family_id
+            ) a ON a.family_id = u.family_id
+            WHERE u.is_active = 1
+            GROUP BY u.family_id, a.open_alerts
+            ORDER BY u.family_id ASC
+            """);
+
+        return ok(db.map("families", families));
+    }
+
     public ResponseEntity<Map<String, Object>> getAdminAnalytics(String familyId,
                                                                  int months,
                                                                  int days) {
@@ -2032,6 +2408,51 @@ public class KinEchoApiService {
         return ok("counselors", counselors);
     }
 
+    public ResponseEntity<Map<String, Object>> getAdminCounselors() {
+        List<Map<String, Object>> counselors = db.list("""
+            SELECT *
+            FROM counselors
+            ORDER BY is_active DESC, available DESC, rating DESC, id ASC
+            """);
+        counselors.forEach(this::normalizeCounselor);
+        return ok("counselors", counselors);
+    }
+
+    public ResponseEntity<Map<String, Object>> updateAdminCounselor(long counselorId, Map<String, Object> data) {
+        if (counselorId <= 0) {
+            return bad("invalid counselor id");
+        }
+        Map<String, Object> body = data == null ? Map.of() : data;
+        List<String> sets = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        if (body.containsKey("available")) {
+            sets.add("available = ?");
+            args.add(activeFlag(body.get("available"), 1));
+        }
+        if (body.containsKey("is_active")) {
+            sets.add("is_active = ?");
+            args.add(activeFlag(body.get("is_active"), 1));
+        }
+        if (body.containsKey("availability_text")) {
+            sets.add("availability_text = ?");
+            args.add(db.string(body.get("availability_text")).trim());
+        }
+        if (body.containsKey("calendar")) {
+            sets.add("calendar = ?");
+            args.add(db.toJson(value(body, "calendar", Map.of())));
+        }
+        if (sets.isEmpty()) {
+            return bad("no fields to update");
+        }
+        sets.add("updated_at = CURRENT_TIMESTAMP");
+        args.add(counselorId);
+        int updated = db.update("UPDATE counselors SET " + String.join(", ", sets) + " WHERE id = ?", args.toArray());
+        if (updated == 0) {
+            return notFound("counselor not found");
+        }
+        return ok(db.map("success", true, "counselor_id", counselorId));
+    }
+
     private void normalizeCounselor(Map<String, Object> item) {
         item.put("available", db.boolValue(item.get("available")));
         item.put("price", db.intValue(item.get("price"), 300));
@@ -2040,8 +2461,34 @@ public class KinEchoApiService {
         item.put("experience_stats", db.jsonMap(item.get("experience_stats")));
         item.put("specialties", db.jsonList(item.get("specialties")));
         item.put("packages", db.jsonList(item.get("packages")));
-        item.put("calendar", db.jsonMap(item.get("calendar")));
+        Map<String, Object> calendar = db.jsonMap(item.get("calendar"));
+        item.put("calendar", calendar);
         item.put("notices", db.jsonList(item.get("notices")));
+        attachCounselorAvailabilitySummary(item, calendar);
+    }
+
+    private void attachCounselorAvailabilitySummary(Map<String, Object> item, Map<String, Object> calendar) {
+        int slotCount = 0;
+        String nextAvailableText = "";
+        for (Object value : db.jsonList(calendar.get("dates"))) {
+            if (!(value instanceof Map<?, ?> rawDate)) {
+                continue;
+            }
+            Map<String, Object> date = new LinkedHashMap<>();
+            rawDate.forEach((key, rawValue) -> date.put(String.valueOf(key), rawValue));
+            int available = db.intValue(date.get("available"), 0);
+            if (available <= 0) {
+                continue;
+            }
+            slotCount += available;
+            if (blank(nextAvailableText)) {
+                String month = db.string(calendar.get("month"));
+                String day = db.string(date.get("day"));
+                nextAvailableText = blank(month) ? "最近可约 " + day : "最近可约 " + month + day + "日";
+            }
+        }
+        item.put("available_slot_count", slotCount);
+        item.put("next_available_text", slotCount > 0 ? nextAvailableText + "，剩余 " + slotCount + " 个时段" : "暂无可约时段");
     }
 
     public ResponseEntity<Map<String, Object>> getPsychologyResources() {
@@ -2074,6 +2521,122 @@ public class KinEchoApiService {
             "categories", categories,
             "questions", questions
         ));
+    }
+
+    public ResponseEntity<Map<String, Object>> createAdminPsychologyVideo(Map<String, Object> data) {
+        if (data == null) {
+            return bad("missing required fields");
+        }
+        String slug = db.string(value(data, "slug", "")).trim();
+        String title = db.string(value(data, "title", "")).trim();
+        String sourceUrl = db.string(value(data, "source_url", "")).trim();
+        if (blank(slug) || blank(title) || blank(sourceUrl)) {
+            return bad("psychology video requires slug, title and source_url");
+        }
+
+        long id = db.insert("""
+            INSERT INTO psychology_videos (
+                slug, title, category, duration, speaker, summary, poster_url, source_url, license,
+                cover_class_name, takeaways, sort_order, is_active
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            slug,
+            title,
+            db.string(value(data, "category", "")).trim(),
+            db.string(value(data, "duration", "")).trim(),
+            db.string(value(data, "speaker", "")).trim(),
+            db.string(value(data, "summary", "")).trim(),
+            db.string(value(data, "poster_url", "")).trim(),
+            sourceUrl,
+            db.string(value(data, "license", "")).trim(),
+            db.string(value(data, "cover_class_name", "")).trim(),
+            db.toJson(psychologyTakeaways(value(data, "takeaways", List.of()))),
+            db.intValue(value(data, "sort_order", 0), 0),
+            activeFlag(value(data, "is_active", 1), 1)
+        );
+        return created(db.map("success", true, "video_id", id));
+    }
+
+    public ResponseEntity<Map<String, Object>> updateAdminPsychologyVideo(long videoId, Map<String, Object> data) {
+        if (videoId <= 0) {
+            return bad("invalid video id");
+        }
+        if (data == null || data.isEmpty()) {
+            return bad("no fields to update");
+        }
+        List<String> sets = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        ResponseEntity<Map<String, Object>> invalid = collectPsychologyVideoUpdates(data, sets, args);
+        if (invalid != null) {
+            return invalid;
+        }
+        if (sets.isEmpty()) {
+            return bad("no fields to update");
+        }
+        sets.add("updated_at = CURRENT_TIMESTAMP");
+        args.add(videoId);
+        int updated = db.update("UPDATE psychology_videos SET " + String.join(", ", sets) + " WHERE id = ?", args.toArray());
+        if (updated == 0) {
+            return notFound("video not found");
+        }
+        return ok(db.map("success", true, "video_id", videoId));
+    }
+
+    public ResponseEntity<Map<String, Object>> createAdminPsychologyQuestion(Map<String, Object> data) {
+        if (data == null) {
+            return bad("missing required fields");
+        }
+        String question = db.string(value(data, "question", "")).trim();
+        if (blank(question)) {
+            return bad("question is required");
+        }
+        long id = db.insert("""
+            INSERT INTO psychology_questions (question, sort_order, is_active)
+            VALUES (?, ?, ?)
+            """,
+            question,
+            db.intValue(value(data, "sort_order", 0), 0),
+            activeFlag(value(data, "is_active", 1), 1)
+        );
+        return created(db.map("success", true, "question_id", id));
+    }
+
+    public ResponseEntity<Map<String, Object>> updateAdminPsychologyQuestion(long questionId, Map<String, Object> data) {
+        if (questionId <= 0) {
+            return bad("invalid question id");
+        }
+        if (data == null || data.isEmpty()) {
+            return bad("no fields to update");
+        }
+        List<String> sets = new ArrayList<>();
+        List<Object> args = new ArrayList<>();
+        if (data.containsKey("question")) {
+            String question = db.string(data.get("question")).trim();
+            if (blank(question)) {
+                return bad("question cannot be blank");
+            }
+            sets.add("question = ?");
+            args.add(question);
+        }
+        if (data.containsKey("sort_order")) {
+            sets.add("sort_order = ?");
+            args.add(db.intValue(data.get("sort_order"), 0));
+        }
+        if (data.containsKey("is_active")) {
+            sets.add("is_active = ?");
+            args.add(activeFlag(data.get("is_active"), 1));
+        }
+        if (sets.isEmpty()) {
+            return bad("no fields to update");
+        }
+        sets.add("updated_at = CURRENT_TIMESTAMP");
+        args.add(questionId);
+        int updated = db.update("UPDATE psychology_questions SET " + String.join(", ", sets) + " WHERE id = ?", args.toArray());
+        if (updated == 0) {
+            return notFound("question not found");
+        }
+        return ok(db.map("success", true, "question_id", questionId));
     }
 
     public ResponseEntity<Map<String, Object>> getPsychologyQuestion(long questionId) {
@@ -2115,6 +2678,70 @@ public class KinEchoApiService {
         item.put("takeaways", db.jsonList(item.get("takeaways")).stream().map(String::valueOf).toList());
     }
 
+    private ResponseEntity<Map<String, Object>> collectPsychologyVideoUpdates(Map<String, Object> data,
+                                                                              List<String> sets,
+                                                                              List<Object> args) {
+        for (String field : List.of("slug", "title", "source_url")) {
+            if (!data.containsKey(field)) {
+                continue;
+            }
+            String text = db.string(data.get(field)).trim();
+            if (blank(text)) {
+                return bad(field + " cannot be blank");
+            }
+            sets.add(field + " = ?");
+            args.add(text);
+        }
+        for (String field : List.of("category", "duration", "speaker", "summary", "poster_url", "license", "cover_class_name")) {
+            if (data.containsKey(field)) {
+                sets.add(field + " = ?");
+                args.add(db.string(data.get(field)).trim());
+            }
+        }
+        if (data.containsKey("takeaways")) {
+            sets.add("takeaways = ?");
+            args.add(db.toJson(psychologyTakeaways(data.get("takeaways"))));
+        }
+        if (data.containsKey("sort_order")) {
+            sets.add("sort_order = ?");
+            args.add(db.intValue(data.get("sort_order"), 0));
+        }
+        if (data.containsKey("is_active")) {
+            sets.add("is_active = ?");
+            args.add(activeFlag(data.get("is_active"), 1));
+        }
+        return null;
+    }
+
+    private List<String> psychologyTakeaways(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream()
+                .map(String::valueOf)
+                .map(String::trim)
+                .filter(item -> !item.isBlank())
+                .toList();
+        }
+        String text = db.string(value).trim();
+        if (blank(text)) {
+            return List.of();
+        }
+        return Arrays.stream(text.split("[\\r\\n,，;；]+"))
+            .map(String::trim)
+            .filter(item -> !item.isBlank())
+            .toList();
+    }
+
+    private int activeFlag(Object value, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        String text = db.string(value).trim();
+        if ("0".equals(text) || "false".equalsIgnoreCase(text) || "no".equalsIgnoreCase(text)) {
+            return 0;
+        }
+        return 1;
+    }
+
     public ResponseEntity<Map<String, Object>> getConsultations(Map<String, String> params) {
         String familyId = params.get("family_id");
         if (blank(familyId)) {
@@ -2134,6 +2761,7 @@ public class KinEchoApiService {
             ORDER BY c.scheduled_time DESC
             LIMIT ?
             """.formatted(query.where), args.toArray());
+        consultations.forEach(this::attachConsultationFamilySummary);
         return ok("consultations", consultations);
     }
     public ResponseEntity<Map<String, Object>> createConsultation(Map<String, Object> data) {
@@ -2146,6 +2774,10 @@ public class KinEchoApiService {
         String consultationType = db.string(value(data, "consultation_type", "phone"));
         String note = db.string(value(data, "note", ""));
         String status = db.string(value(data, "status", "scheduled"));
+        ResponseEntity<Map<String, Object>> bookingCheck = validateCounselorBooking(counselorId, data.get("scheduled_time"));
+        if (bookingCheck != null) {
+            return bookingCheck;
+        }
         long id = db.insert("""
             INSERT INTO consultations (family_id, elderly_id, counselor_id, consultation_type, scheduled_time, duration, status, note)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -2184,23 +2816,152 @@ public class KinEchoApiService {
 
         return created(db.map("success", true, "consultation_id", id, "alert_id", alertId));
     }
+
+    private ResponseEntity<Map<String, Object>> validateCounselorBooking(Object counselorIdValue, Object scheduledTimeValue) {
+        long counselorId = db.longValue(counselorIdValue, 0);
+        if (counselorId <= 0) {
+            return null;
+        }
+        Map<String, Object> counselor = db.one("""
+            SELECT id, name, available, is_active
+            FROM counselors
+            WHERE id = ?
+            LIMIT 1
+            """, counselorId).orElse(null);
+        if (counselor == null || !db.boolValue(value(counselor, "is_active", 1))) {
+            return bad("counselor not found");
+        }
+        if (!db.boolValue(counselor.get("available"))) {
+            return bad("counselor is not available");
+        }
+        String scheduledTime = db.string(scheduledTimeValue).trim();
+        long overlapping = db.count("""
+            SELECT COUNT(*)
+            FROM consultations
+            WHERE counselor_id = ?
+              AND scheduled_time = ?
+              AND status IN ('scheduled', 'in_progress')
+            """, counselorId, scheduledTime);
+        if (overlapping > 0) {
+            return bad("counselor slot is already booked");
+        }
+        return null;
+    }
     public ResponseEntity<Map<String, Object>> updateConsultation(long consultationId, Map<String, Object> data) {
+        Map<String, Object> body = data == null ? Map.of() : data;
+        String familyId = db.string(body.get("family_id"));
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+        Map<String, Object> current = db.one("""
+            SELECT id, family_id, elderly_id, status, scheduled_time, note
+            FROM consultations
+            WHERE id = ? AND family_id = ?
+            LIMIT 1
+            """, consultationId, familyId).orElse(null);
+        if (current == null) {
+            return notFound("consultation not found");
+        }
+        ResponseEntity<Map<String, Object>> lifecycleCheck = validateConsultationLifecycle(current, body);
+        if (lifecycleCheck != null) {
+            return lifecycleCheck;
+        }
         ResponseEntity<Map<String, Object>> response = familyScopedUpdate(
             "consultations",
             consultationId,
-            db.string(data.get("family_id")),
-            data,
+            familyId,
+            body,
             List.of("consultation_type", "scheduled_time", "duration", "status", "note", "counselor_id"),
             "consultation",
             false
         );
         if (response.getStatusCode().is2xxSuccessful()) {
-            Map<String, Object> row = db.one("SELECT family_id, elderly_id, note FROM consultations WHERE id = ? LIMIT 1", consultationId).orElse(Map.of());
+            Map<String, Object> row = db.one("SELECT family_id, elderly_id, note FROM consultations WHERE id = ? LIMIT 1", consultationId).orElse(current);
             auditCareAction(db.string(row.get("family_id")), row.get("elderly_id"), "elderly", "elderly",
                 "consultation_updated", db.string(value(row, "note", "心理咨询预约已更新")),
-                db.map("consultation_id", consultationId, "payload", data));
+                db.map("consultation_id", consultationId, "payload", body));
         }
         return response;
+    }
+
+    private ResponseEntity<Map<String, Object>> validateConsultationLifecycle(Map<String, Object> current,
+                                                                              Map<String, Object> data) {
+        String currentStatus = normalizeConsultationStatus(db.string(current.get("status")));
+        String nextStatus = normalizeConsultationStatus(db.string(value(data, "status", currentStatus)));
+        if (!List.of("scheduled", "in_progress", "completed", "cancelled").contains(nextStatus)) {
+            return bad("unsupported consultation status");
+        }
+        boolean rescheduling = data.containsKey("scheduled_time")
+            && !db.string(data.get("scheduled_time")).equals(db.string(current.get("scheduled_time")));
+        boolean terminal = "completed".equals(currentStatus) || "cancelled".equals(currentStatus);
+        if (terminal && (!nextStatus.equals(currentStatus) || rescheduling)) {
+            return bad("completed or cancelled consultations cannot be changed");
+        }
+        if (rescheduling && !"scheduled".equals(currentStatus)) {
+            return bad("only scheduled consultations can be rescheduled");
+        }
+        if ("cancelled".equals(nextStatus) && "completed".equals(currentStatus)) {
+            return bad("completed consultations cannot be cancelled");
+        }
+        if ("cancelled".equals(nextStatus)) {
+            String reason = db.string(value(data, "note", data.get("cancel_reason"))).trim();
+            if (blank(reason)) {
+                return bad("cancellation reason is required");
+            }
+        }
+        return null;
+    }
+
+    private void attachConsultationFamilySummary(Map<String, Object> consultation) {
+        String status = normalizeConsultationStatus(db.string(consultation.get("status")));
+        String counselorName = db.string(consultation.get("counselor_name"));
+        String type = consultationTypeLabel(db.string(consultation.get("consultation_type")));
+        String scheduledAt = db.string(consultation.get("scheduled_time"));
+        String note = db.string(consultation.get("note"));
+        String owner = blank(counselorName) ? "咨询师" : counselorName;
+        String statusLabel = consultationStatusLabel(status);
+        consultation.put("status_label", statusLabel);
+        consultation.put("can_reschedule", "scheduled".equals(status));
+        consultation.put("can_cancel", "scheduled".equals(status) || "in_progress".equals(status));
+        consultation.put("family_visible_summary", "%s %s %s，当前状态：%s%s".formatted(
+            blank(scheduledAt) ? "待确认时间" : scheduledAt,
+            owner,
+            type,
+            statusLabel,
+            blank(note) ? "" : "，备注：" + note
+        ));
+        consultation.put("next_action", consultationNextAction(status));
+    }
+
+    private String normalizeConsultationStatus(String status) {
+        String normalized = status == null ? "" : status.trim().toLowerCase(Locale.ROOT);
+        return blank(normalized) ? "scheduled" : normalized;
+    }
+
+    private String consultationStatusLabel(String status) {
+        return switch (normalizeConsultationStatus(status)) {
+            case "in_progress" -> "进行中";
+            case "completed" -> "已完成";
+            case "cancelled" -> "已取消";
+            default -> "已预约";
+        };
+    }
+
+    private String consultationTypeLabel(String type) {
+        return switch (db.string(type)) {
+            case "video" -> "视频咨询";
+            case "text" -> "文字咨询";
+            default -> "电话咨询";
+        };
+    }
+
+    private String consultationNextAction(String status) {
+        return switch (normalizeConsultationStatus(status)) {
+            case "in_progress" -> "服务人员应补充咨询记录，完成后回流给家属。";
+            case "completed" -> "家属可查看本次咨询摘要，必要时预约下一次跟进。";
+            case "cancelled" -> "如仍需支持，请重新预约或联系服务人员。";
+            default -> "如需改约或取消，请在咨询开始前处理并说明原因。";
+        };
     }
     public ResponseEntity<Map<String, Object>> uploadMedia(MultipartFile file,
                                                            String family_id,
@@ -2224,7 +2985,8 @@ public class KinEchoApiService {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, family_id, mediaType, title, description, target.toString(), Files.size(target), thumbnail == null ? null : thumbnail.toString(), uploaded_by);
             db.insert("INSERT INTO media_policies (media_id, time_windows, moods, occasions, cooldown, priority) VALUES (?, ?, ?, ?, ?, ?)", id, "[]", "[]", "[]", 60, 5);
-            return created(db.map("success", true, "media_id", id, "file_path", target.toString(), "media_type", mediaType));
+            String fileUrl = mediaAssetUrl(id, family_id, false);
+            return created(db.map("success", true, "media_id", id, "file_path", fileUrl, "file_url", fileUrl, "media_type", mediaType));
         } catch (Exception ex) {
             return status(HttpStatus.INTERNAL_SERVER_ERROR, db.map("error", "upload failed: " + ex.getMessage()));
         }
@@ -2279,6 +3041,72 @@ public class KinEchoApiService {
             """, mediaId));
         return ok(media);
     }
+
+    public ResponseEntity<?> downloadMediaAsset(long mediaId, String familyId, boolean thumbnail) {
+        if (blank(familyId)) {
+            return bad("missing family_id");
+        }
+
+        Map<String, Object> media = db.one("""
+            SELECT id, family_id, media_type, title, file_path, thumbnail_path
+            FROM media
+            WHERE id = ? AND family_id = ? AND is_active = 1
+            """, mediaId, familyId).orElse(null);
+        if (media == null) {
+            return notFound("media not found");
+        }
+
+        String storedPath = db.string(media.get(thumbnail ? "thumbnail_path" : "file_path"));
+        if (blank(storedPath)) {
+            return notFound(thumbnail ? "thumbnail not found" : "media file not found");
+        }
+
+        Path path;
+        try {
+            path = resolveStoredMediaPath(storedPath);
+        } catch (IllegalArgumentException error) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "media path is outside upload directory"));
+        }
+        if (!Files.isRegularFile(path)) {
+            return notFound(thumbnail ? "thumbnail not found" : "media file not found");
+        }
+
+        MediaType contentType = probeMediaType(path);
+        return ResponseEntity.ok()
+            .contentType(contentType)
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + safeDownloadName(path) + "\"")
+            .body(new FileSystemResource(path));
+    }
+
+    public ResponseEntity<?> downloadAiAudio(String filename, String token) {
+        Map<String, Object> claims = SessionTokenCodec.verifySignedPayload(token, properties, mapper);
+        if (claims == null
+            || !"ai_audio".equals(db.string(claims.get("purpose")))
+            || !filename.equals(db.string(claims.get("file")))) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "invalid or expired audio token"));
+        }
+
+        if (filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "invalid audio file"));
+        }
+
+        Path audioRoot = properties.aiAudioDir.toAbsolutePath().normalize();
+        Path path = audioRoot.resolve(filename).toAbsolutePath().normalize();
+        if (!path.startsWith(audioRoot)) {
+            return status(HttpStatus.FORBIDDEN, db.map("error", "audio path is outside audio directory"));
+        }
+        if (!Files.isRegularFile(path)) {
+            return notFound("audio file not found");
+        }
+
+        return ResponseEntity.ok()
+            .contentType(probeMediaType(path))
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=" + Math.max(60, properties.aiAudioUrlTtlSeconds))
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + safeDownloadName(path) + "\"")
+            .body(new FileSystemResource(path));
+    }
+
     public ResponseEntity<Map<String, Object>> updateMedia(long mediaId, Map<String, Object> data) {
         String familyId = db.string(data.get("family_id"));
         ResponseEntity<Map<String, Object>> guard = requireFamilyRecord("media", mediaId, familyId, "media");
@@ -2396,33 +3224,37 @@ public class KinEchoApiService {
         if (elderly_id == null) {
             return bad("missing elderly_id");
         }
-        return ok("history", db.list("""
-            SELECT mph.*, m.title, m.media_type, m.file_path, m.thumbnail_path, mf.feedback_type
+        List<Map<String, Object>> history = db.list("""
+            SELECT mph.*, m.family_id, m.title, m.media_type, m.file_path, m.thumbnail_path, mf.feedback_type
             FROM media_play_history mph
             INNER JOIN media m ON mph.media_id = m.id
             LEFT JOIN media_feedback mf ON mph.media_id = mf.media_id AND mph.elderly_id = mf.elderly_id
             WHERE mph.elderly_id = ?
             ORDER BY mph.played_at DESC
             LIMIT ?
-            """, elderly_id, limit));
+            """, elderly_id, limit);
+        history.forEach(this::attachMediaAssetUrls);
+        return ok("history", history);
     }
     public ResponseEntity<Map<String, Object>> getRecentPlays(String family_id,
                                                               int limit) {
         if (blank(family_id)) {
             return bad("missing family_id");
         }
-        return ok("recent_plays", db.list("""
-            SELECT m.id, m.title, m.media_type, m.thumbnail_path, mph.played_at,
+        List<Map<String, Object>> recentPlays = db.list("""
+            SELECT m.id, m.family_id, m.title, m.media_type, m.thumbnail_path, mph.played_at,
                    COUNT(CASE WHEN mf.feedback_type = 'like' THEN 1 END) AS likes,
                    COUNT(CASE WHEN mf.feedback_type = 'dislike' THEN 1 END) AS dislikes
             FROM media m
             INNER JOIN media_play_history mph ON m.id = mph.media_id
             LEFT JOIN media_feedback mf ON m.id = mf.media_id
             WHERE m.family_id = ?
-            GROUP BY m.id, m.title, m.media_type, m.thumbnail_path, mph.played_at
+            GROUP BY m.id, m.family_id, m.title, m.media_type, m.thumbnail_path, mph.played_at
             ORDER BY mph.played_at DESC
             LIMIT ?
-            """, family_id, limit));
+            """, family_id, limit);
+        recentPlays.forEach(this::attachMediaAssetUrls);
+        return ok("recent_plays", recentPlays);
     }
     public ResponseEntity<Map<String, Object>> createToast(Map<String, Object> data) {
         String familyId = db.string(data.get("family_id"));
@@ -2447,6 +3279,11 @@ public class KinEchoApiService {
         Map<String, Object> body = data == null ? Map.of() : data;
         String message = db.string(value(body, "message", value(body, "text", "")));
         String user = db.string(value(body, "user", "User"));
+        String familyId = db.string(body.get("family_id"));
+        Object elderlyId = normalizedElderlyId(body.get("elderly_id"));
+        if (hasAiCrisisSignal(message)) {
+            return ok(aiCrisisResponse(message, familyId, elderlyId));
+        }
         try {
             return ok(aiCompanion.chat(message, user, origin(headers)));
         } catch (IllegalArgumentException ex) {
@@ -2459,11 +3296,20 @@ public class KinEchoApiService {
                                                            MultipartFile voice,
                                                            MultipartFile audio,
                                                            String user,
+                                                           String familyId,
+                                                           Object elderlyId,
                                                            HttpHeaders headers) {
         try {
             Map<String, Object> result = aiCompanion.voiceChat(file != null ? file : (voice != null ? voice : audio), user, origin(headers));
             if (result.containsKey("error")) {
                 return status(HttpStatus.UNPROCESSABLE_ENTITY, result);
+            }
+            if (hasAiCrisisSignal(db.string(result.get("transcript")))) {
+                Map<String, Object> crisis = aiCrisisResponse(db.string(result.get("transcript")), familyId, normalizedElderlyId(elderlyId));
+                crisis.put("transcript", result.get("transcript"));
+                crisis.put("asr_provider", result.get("asr_provider"));
+                crisis.put("asr_error", result.get("asr_error"));
+                return ok(crisis);
             }
             return ok(result);
         } catch (IllegalArgumentException ex) {
@@ -2485,12 +3331,119 @@ public class KinEchoApiService {
         return ok(db.map("status", "ok", "timestamp", LocalDateTime.now().toString(), "backend", "java-spring-boot"));
     }
 
+    public ResponseEntity<Map<String, Object>> retentionSummary() {
+        return ok(db.map(
+            "generated_at", LocalDateTime.now(properties.zoneId).format(DATE_TIME),
+            "policy", db.map(
+                "ai_audio_retention_count", properties.aiAudioRetentionCount,
+                "ai_audio_url_ttl_seconds", properties.aiAudioUrlTtlSeconds,
+                "ai_voice_retention_days", properties.aiVoiceRetentionDays,
+                "mental_frame_retention_days", properties.mentalFrameRetentionDays,
+                "ai_chat_retention_days", properties.aiChatRetentionDays,
+                "consultation_retention_days", properties.consultationRetentionDays,
+                "audit_log_retention_days", properties.auditLogRetentionDays
+            ),
+            "storage", db.map(
+                "upload_dir", retentionDirectoryStatus(properties.uploadDir),
+                "ai_audio_dir", retentionDirectoryStatus(properties.aiAudioDir),
+                "ai_voice_upload_dir", retentionDirectoryStatus(properties.aiVoiceUploadDir)
+            )
+        ));
+    }
+
+    private Map<String, Object> retentionDirectoryStatus(Path dir) {
+        boolean exists = dir != null && Files.isDirectory(dir);
+        long fileCount = 0;
+        if (exists) {
+            try (var stream = Files.list(dir)) {
+                fileCount = stream.filter(Files::isRegularFile).count();
+            } catch (IOException ignored) {
+                fileCount = -1;
+            }
+        }
+        return db.map(
+            "path", dir == null ? "" : dir.toString(),
+            "exists", exists,
+            "file_count", fileCount
+        );
+    }
+
     private long insertAlert(Map<String, Object> data, String source) {
         return db.insert("""
             INSERT INTO family_alerts (family_id, elderly_id, alert_type, level, title, message, metadata, source)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, data.get("family_id"), data.get("elderly_id"), data.get("alert_type"), data.get("level"),
             data.get("title"), data.get("message"), db.toJson(value(data, "metadata", Map.of())), source);
+    }
+
+    private Map<String, Object> aiCrisisResponse(String message,
+                                                 String familyId,
+                                                 Object elderlyId) {
+        Long alertId = null;
+        String nextStep;
+        if (!blank(familyId)) {
+            Map<String, Object> alert = new LinkedHashMap<>();
+            alert.put("family_id", familyId);
+            alert.put("elderly_id", elderlyId);
+            alert.put("alert_type", "ai_crisis");
+            alert.put("level", "high");
+            alert.put("title", "AI crisis alert");
+            alert.put("message", "AI companion detected possible self-harm or crisis language. Family and service staff should follow up immediately.");
+            alert.put("metadata", db.map(
+                "trigger", "ai_chat",
+                "message", message == null ? "" : message.trim()
+            ));
+            alertId = insertAlert(alert, "ai_companion");
+            auditCareAction(familyId, elderlyId, "ai", "AI companion", "ai_crisis_detected",
+                "AI companion detected a high-risk expression and escalated it for human follow-up.", db.map("alert_id", alertId));
+            nextStep = "A high-risk alert has been created. Family and service staff should follow up immediately.";
+        } else {
+            nextStep = "Family information is missing, so an alert could not be created automatically. Contact a trusted person or local emergency support immediately.";
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("message", message == null ? "" : message.trim());
+        response.put("reply", "I hear that this feels very hard right now. Please do not stay alone. Contact family, service staff, or another trusted person immediately; if you may hurt yourself, call local emergency services now.");
+        response.put("chat_provider", "safety");
+        response.put("provider_error", "");
+        response.put("audio_url", "");
+        response.put("audio_error", "High-risk conversation escalated for human follow-up; voice synthesis is skipped.");
+        response.put("tts_provider", "safety");
+        response.put("crisis_detected", true);
+        response.put("alert_id", alertId);
+        response.put("next_step", nextStep);
+        return response;
+    }
+
+    private Object normalizedElderlyId(Object value) {
+        long id = db.longValue(value, 0);
+        return id > 0 ? id : null;
+    }
+
+    private boolean consentAccepted(Object value) {
+        String text = db.string(value);
+        return !("false".equalsIgnoreCase(text) || "0".equals(text) || "no".equalsIgnoreCase(text));
+    }
+
+    private boolean hasAiCrisisSignal(String message) {
+        String text = message == null ? "" : message.trim();
+        if (text.isBlank()) {
+            return false;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        return lower.contains("轻生")
+            || lower.contains("自杀")
+            || lower.contains("不想")
+            || lower.contains("活不下去")
+            || lower.contains("结束生命")
+            || lower.contains("伤害自己")
+            || lower.contains("自残")
+            || lower.contains("割腕")
+            || lower.contains("跳楼")
+            || lower.contains("suicide")
+            || lower.contains("kill myself")
+            || lower.contains("want to die")
+            || lower.contains("end my life");
     }
 
     private ResponseEntity<Map<String, Object>> dynamicUpdate(String table, long id, Map<String, Object> data, List<String> allowed) {
@@ -2615,6 +3568,67 @@ public class KinEchoApiService {
         for (String field : List.of("time_windows", "moods", "occasions")) {
             row.put(field, db.jsonList(row.get(field)));
         }
+        attachMediaAssetUrls(row);
+    }
+
+    private void attachMediaAssetUrls(Map<String, Object> row) {
+        long mediaId = db.longValue(value(row, "media_id", row.get("id")), 0);
+        String familyId = db.string(row.get("family_id"));
+        if (mediaId <= 0 || blank(familyId)) {
+            return;
+        }
+
+        if (!blank(db.string(row.get("file_path")))) {
+            String fileUrl = mediaAssetUrl(mediaId, familyId, false);
+            row.put("file_path", fileUrl);
+            row.put("file_url", fileUrl);
+        }
+        if (!blank(db.string(row.get("thumbnail_path")))) {
+            String thumbnailUrl = mediaAssetUrl(mediaId, familyId, true);
+            row.put("thumbnail_path", thumbnailUrl);
+            row.put("thumbnail_url", thumbnailUrl);
+        }
+    }
+
+    private String mediaAssetUrl(long mediaId, String familyId, boolean thumbnail) {
+        String suffix = thumbnail ? "/thumbnail" : "/file";
+        return "/api/family/media/" + mediaId + suffix + "?family_id=" + URLEncoder.encode(familyId, StandardCharsets.UTF_8);
+    }
+
+    private Path resolveStoredMediaPath(String storedPath) {
+        String normalizedPath = storedPath.replace('\\', '/');
+        Path candidate;
+        if (normalizedPath.startsWith("/uploads/")) {
+            candidate = properties.uploadDir.resolve(normalizedPath.substring("/uploads/".length()));
+        } else if (normalizedPath.startsWith("uploads/")) {
+            candidate = properties.uploadDir.resolve(normalizedPath.substring("uploads/".length()));
+        } else {
+            Path raw = Path.of(storedPath);
+            candidate = raw.isAbsolute() ? raw : properties.projectRoot.resolve(raw);
+        }
+
+        Path uploadRoot = properties.uploadDir.toAbsolutePath().normalize();
+        Path resolved = candidate.toAbsolutePath().normalize();
+        if (!resolved.startsWith(uploadRoot)) {
+            throw new IllegalArgumentException("outside upload directory");
+        }
+        return resolved;
+    }
+
+    private MediaType probeMediaType(Path path) {
+        try {
+            String type = Files.probeContentType(path);
+            if (!blank(type)) {
+                return MediaType.parseMediaType(type);
+            }
+        } catch (Exception ignored) {
+            // Fall back to an opaque binary response when the platform cannot detect the type.
+        }
+        return MediaType.APPLICATION_OCTET_STREAM;
+    }
+
+    private String safeDownloadName(Path path) {
+        return path.getFileName().toString().replace("\"", "");
     }
 
     private boolean matchesTimeWindows(List<Object> windows, LocalTime now) {
@@ -3256,6 +4270,7 @@ public class KinEchoApiService {
         String familyId = db.string(user.get("family_id"));
         Map<String, Object> body = db.map(
             "has_role", true,
+            "role", userType,
             "user_id", userId,
             "display_name", user.get("name"),
             "name", user.get("name"),
@@ -3267,6 +4282,7 @@ public class KinEchoApiService {
             body.put("elderly_id", userId);
             body.put("elderly_name", user.get("name"));
             body.put("bound_elderly", true);
+            attachSessionToken(body);
             return body;
         }
 
@@ -3283,19 +4299,24 @@ public class KinEchoApiService {
             body.put("elderly_id", elderly.get("id"));
             body.put("elderly_name", elderly.get("name"));
         }
+        attachSessionToken(body);
         return body;
     }
 
     private Map<String, Object> serviceIdentity(String openid) {
         if (!blank(properties.serviceWechatOpenid) && properties.serviceWechatOpenid.equals(openid)) {
-            return db.map(
+            Map<String, Object> body = db.map(
                 "has_role", true,
+                "role", "service",
                 "certified", true,
                 "status", "approved",
+                "openid", openid,
                 "username", "wechat-service",
                 "display_name", properties.serviceDisplayName,
                 "family_id", properties.serviceFamilyId
             );
+            attachSessionToken(body);
+            return body;
         }
 
         Map<String, Object> certification = db.one("""
@@ -3320,8 +4341,10 @@ public class KinEchoApiService {
 
         Map<String, Object> body = db.map(
             "has_role", "approved".equals(status),
+            "role", "service",
             "certified", "approved".equals(status),
             "status", status,
+            "openid", openid,
             "username", db.string(certification.get("staff_no")),
             "display_name", db.string(certification.get("name")),
             "family_id", properties.serviceFamilyId,
@@ -3331,6 +4354,9 @@ public class KinEchoApiService {
         );
         if ("rejected".equals(status)) {
             body.put("reason", db.string(certification.get("reject_reason")));
+        }
+        if ("approved".equals(status)) {
+            attachSessionToken(body);
         }
         return body;
     }
@@ -3394,6 +4420,7 @@ public class KinEchoApiService {
             "display_name", properties.serviceDisplayName,
             "family_id", properties.serviceFamilyId
         );
+        attachSessionToken(body);
         return ok(body);
     }
 
@@ -3427,6 +4454,7 @@ public class KinEchoApiService {
             }
         }
 
+        attachSessionToken(body);
         return body;
     }
 
@@ -3449,12 +4477,30 @@ public class KinEchoApiService {
         if ("service".equals(role)) {
             body.put("family_id", properties.serviceFamilyId);
         }
+        attachSessionToken(body);
         return ok(body);
+    }
+
+    private void attachSessionToken(Map<String, Object> body) {
+        body.put("session_token", createSessionToken(body));
+        body.put("session_expires_in", properties.sessionTtlSeconds);
+    }
+
+    private String createSessionToken(Map<String, Object> body) {
+        return SessionTokenCodec.create(body, properties, mapper);
+    }
+
+    private Map<String, Object> verifySessionToken(String token) {
+        return SessionTokenCodec.verify(token, properties, mapper);
+    }
+
+    private String extractSessionToken(String sessionToken, String authorization) {
+        return SessionTokenCodec.extract(sessionToken, authorization, properties);
     }
 
     private boolean matchesLoginPassword(Map<String, Object> user, String password) {
         String phone = db.string(user.get("phone")).replaceAll("\\D+", "");
-        if (phone.length() >= 6 && password.equals(phone.substring(phone.length() - 6))) {
+        if (properties.phoneSuffixLoginEnabled && phone.length() >= 6 && password.equals(phone.substring(phone.length() - 6))) {
             return true;
         }
         return !blank(properties.demoLoginPassword) && password.equals(properties.demoLoginPassword);

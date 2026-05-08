@@ -2,12 +2,14 @@ export const ADMIN_FAMILY_ID = import.meta.env.VITE_ADMIN_FAMILY_ID || 'family_0
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api';
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || '';
+const ADMIN_SESSION_KEY = 'kin-admin-session';
 
 type QueryValue = string | number | boolean | null | undefined;
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   data?: unknown;
+  headers?: Record<string, string>;
 }
 
 export interface ApiUser {
@@ -57,11 +59,52 @@ export interface ApiMedia {
   title: string;
   description?: string;
   file_path: string;
+  file_url?: string;
   thumbnail_path?: string;
+  thumbnail_url?: string;
   tags?: string[];
   play_count?: number;
   priority?: number;
   created_at?: string;
+}
+
+export interface ApiPsychologyVideo {
+  id: number;
+  slug: string;
+  title: string;
+  category?: string;
+  duration?: string;
+  speaker?: string;
+  summary?: string;
+  poster_url?: string;
+  source_url?: string;
+  license?: string;
+  cover_class_name?: string;
+  takeaways?: string[];
+  sort_order?: number;
+  is_active?: number;
+}
+
+export interface ApiPsychologyCategory {
+  id: number;
+  name: string;
+  icon?: string;
+  class_name?: string;
+  sort_order?: number;
+}
+
+export interface ApiPsychologyQuestion {
+  id: number;
+  question: string;
+  reply_count?: number;
+  sort_order?: number;
+  is_active?: number;
+}
+
+export interface ApiPsychologyResources {
+  videos: ApiPsychologyVideo[];
+  categories: ApiPsychologyCategory[];
+  questions: ApiPsychologyQuestion[];
 }
 
 export interface ApiMoodStats {
@@ -105,6 +148,24 @@ export interface ApiHealth {
   status: string;
   timestamp: string;
   backend: string;
+}
+
+export interface ApiRetentionSummary {
+  generated_at: string;
+  policy: {
+    ai_audio_retention_count: number;
+    ai_audio_url_ttl_seconds: number;
+    ai_voice_retention_days: number;
+    mental_frame_retention_days: number;
+    ai_chat_retention_days: number;
+    consultation_retention_days: number;
+    audit_log_retention_days: number;
+  };
+  storage: Record<string, {
+    path: string;
+    exists: boolean;
+    file_count: number;
+  }>;
 }
 
 export interface ApiCareInsight {
@@ -191,11 +252,81 @@ export interface ApiAdminAnalytics {
   }>;
 }
 
+export interface ApiAdminFamily {
+  family_id: string;
+  total_users: number;
+  elderly_count: number;
+  family_count: number;
+  open_alerts: number;
+}
+
+export interface ApiServiceCertification {
+  id: number;
+  wechat_openid: string;
+  name: string;
+  phone: string;
+  staff_no: string;
+  organization: string;
+  status: 'pending' | 'approved' | 'rejected' | string;
+  reject_reason?: string;
+  reviewer?: string;
+  reviewed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ApiCounselor {
+  id: number;
+  name: string;
+  title: string;
+  experience?: string;
+  specialty?: string;
+  rating?: string;
+  availability_text?: string;
+  available_slot_count?: number;
+  next_available_text?: string;
+  available: boolean;
+  is_active?: number | boolean;
+  updated_at?: string;
+}
+
+export interface ApiPrivacyRequest {
+  id: number;
+  family_id: string;
+  elderly_id?: number;
+  request_type: 'export' | 'delete' | 'correction' | string;
+  status: 'pending' | 'processing' | 'completed' | 'rejected' | string;
+  requested_by?: string;
+  reason?: string;
+  processed_by?: string;
+  process_note?: string;
+  processed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface ApiLoginResult {
   success: boolean;
   role: 'admin' | string;
   username?: string;
   display_name?: string;
+  session_token?: string;
+  session_expires_in?: number;
+}
+
+export interface ApiCurrentSession {
+  success: boolean;
+  role: string;
+  family_id?: string;
+  elderly_id?: number;
+  elderly_bound: boolean;
+  session_expires_at: number;
+  user: {
+    role: string;
+    username?: string;
+    display_name?: string;
+    family_id?: string;
+  };
 }
 
 function buildQueryString(params: Record<string, QueryValue>) {
@@ -237,6 +368,16 @@ function authHeaders(): Record<string, string> {
     headers['X-KinEcho-Token'] = token;
   }
 
+  try {
+    const raw = window.localStorage.getItem(ADMIN_SESSION_KEY);
+    const session = raw ? JSON.parse(raw) as { sessionToken?: unknown } : null;
+    if (typeof session?.sessionToken === 'string' && session.sessionToken.trim()) {
+      headers['X-KinEcho-Session'] = session.sessionToken.trim();
+    }
+  } catch {
+    // Ignore malformed local session state; the login screen can recreate it.
+  }
+
   return headers;
 }
 
@@ -244,6 +385,7 @@ async function request<T>(path: string, options: RequestOptions = {}) {
   const headers: Record<string, string> = {
     ...authHeaders(),
     ...(options.data === undefined ? {} : { 'Content-Type': 'application/json' }),
+    ...options.headers,
   };
 
   const response = await fetch(toAbsoluteUrl(path), {
@@ -255,7 +397,7 @@ async function request<T>(path: string, options: RequestOptions = {}) {
   const data = text ? JSON.parse(text) : null;
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(data, `请求失败�?{response.status}`));
+    throw new Error(getErrorMessage(data, `请求失败 ${response.status}`));
   }
 
   return data as T;
@@ -263,6 +405,10 @@ async function request<T>(path: string, options: RequestOptions = {}) {
 
 export async function getHealth() {
   return request<ApiHealth>('/health');
+}
+
+export async function getRetentionSummary() {
+  return request<ApiRetentionSummary>('/admin/retention/summary');
 }
 
 export async function loginAdmin(username: string, password: string) {
@@ -276,9 +422,69 @@ export async function loginAdmin(username: string, password: string) {
   });
 }
 
+export async function getMe(sessionToken: string) {
+  return request<ApiCurrentSession>('/me', {
+    headers: {
+      'X-KinEcho-Session': sessionToken.trim(),
+    },
+  });
+}
+
 export async function getAdminServiceSummary(familyId = ADMIN_FAMILY_ID) {
   const query = buildQueryString({ family_id: familyId });
   return request<ApiAdminServiceSummary>(`/admin/service-summary?${query}`);
+}
+
+export async function getAdminFamilies() {
+  const data = await request<{ families: ApiAdminFamily[] }>('/admin/families');
+  return data.families || [];
+}
+
+export async function getServiceCertifications(status = 'pending') {
+  const query = buildQueryString({ status, limit: 100 });
+  const data = await request<{ certifications: ApiServiceCertification[] }>(`/admin/service-certifications?${query}`);
+  return data.certifications || [];
+}
+
+export async function reviewServiceCertification(
+  certificationId: number,
+  payload: { status: 'approved' | 'rejected'; reviewer?: string; reject_reason?: string }
+) {
+  await request<{ success: boolean }>(`/admin/service-certifications/${certificationId}`, {
+    method: 'PUT',
+    data: payload,
+  });
+}
+
+export async function getAdminCounselors() {
+  const data = await request<{ counselors: ApiCounselor[] }>('/admin/counselors');
+  return data.counselors || [];
+}
+
+export async function updateAdminCounselor(
+  counselorId: number,
+  payload: { available?: boolean | number; is_active?: boolean | number; availability_text?: string }
+) {
+  await request<{ success: boolean }>(`/admin/counselors/${counselorId}`, {
+    method: 'PUT',
+    data: payload,
+  });
+}
+
+export async function getPrivacyRequests(familyId = ADMIN_FAMILY_ID, status = 'pending') {
+  const query = buildQueryString({ family_id: familyId, status, limit: 100 });
+  const data = await request<{ requests: ApiPrivacyRequest[] }>(`/admin/privacy/requests?${query}`);
+  return data.requests || [];
+}
+
+export async function reviewPrivacyRequest(
+  requestId: number,
+  payload: { status: 'processing' | 'completed' | 'rejected'; reviewer?: string; process_note?: string }
+) {
+  await request<{ success: boolean }>(`/admin/privacy/requests/${requestId}`, {
+    method: 'PUT',
+    data: payload,
+  });
 }
 
 export async function getAdminAnalytics(
@@ -390,6 +596,45 @@ export async function getMedia(familyId = ADMIN_FAMILY_ID) {
   return data.media || [];
 }
 
+export async function getPsychologyResources() {
+  const data = await request<ApiPsychologyResources>('/psychology/resources');
+  return {
+    videos: data.videos || [],
+    categories: data.categories || [],
+    questions: data.questions || [],
+  };
+}
+
+export async function createPsychologyVideo(payload: Partial<ApiPsychologyVideo>) {
+  const data = await request<{ success: boolean; video_id: number }>('/admin/psychology/videos', {
+    method: 'POST',
+    data: payload,
+  });
+  return data.video_id;
+}
+
+export async function updatePsychologyVideo(videoId: number, payload: Partial<ApiPsychologyVideo>) {
+  await request<{ success: boolean; video_id: number }>(`/admin/psychology/videos/${videoId}`, {
+    method: 'PUT',
+    data: payload,
+  });
+}
+
+export async function createPsychologyQuestion(payload: Partial<ApiPsychologyQuestion>) {
+  const data = await request<{ success: boolean; question_id: number }>('/admin/psychology/questions', {
+    method: 'POST',
+    data: payload,
+  });
+  return data.question_id;
+}
+
+export async function updatePsychologyQuestion(questionId: number, payload: Partial<ApiPsychologyQuestion>) {
+  await request<{ success: boolean; question_id: number }>(`/admin/psychology/questions/${questionId}`, {
+    method: 'PUT',
+    data: payload,
+  });
+}
+
 export async function uploadMedia(file: File, title: string, description = '', familyId = ADMIN_FAMILY_ID) {
   const formData = new FormData();
   formData.append('file', file);
@@ -405,7 +650,7 @@ export async function uploadMedia(file: File, title: string, description = '', f
   const data = await response.json();
 
   if (!response.ok) {
-    throw new Error(getErrorMessage(data, `上传失败�?{response.status}`));
+    throw new Error(getErrorMessage(data, `上传失败 ${response.status}`));
   }
 
   return data as { media_id: number };

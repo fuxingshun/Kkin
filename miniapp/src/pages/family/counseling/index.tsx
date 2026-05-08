@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Text, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
-import { DEFAULT_FAMILY_ID } from '@/config/runtime';
 import {
   createFamilyConsultation,
   getCounselors,
@@ -14,6 +13,7 @@ import {
   type FamilyUser,
 } from '@/services/family';
 import { formatDateTimeText, formatDateTimeValue } from '@/utils/format';
+import { getFamilySession, requireCurrentFamilyId } from '@/utils/familySession';
 
 const methods = [
   { type: 'phone' as const, label: '电话咨询', desc: '适合快速沟通照护问题', tone: 'green' },
@@ -76,9 +76,19 @@ function formatSlotLabel(value: Date) {
 
 function getNextActionLabel(item?: Consultation | null) {
   if (!item) return '创建预约';
+  if (item.next_action) return item.next_action;
   if (item.status === 'scheduled') return '进入咨询';
   if (item.status === 'in_progress') return '完成咨询';
   return '查看记录';
+}
+
+function getStatusText(item: Consultation) {
+  return item.status_label || getStatusLabel(item.status).label;
+}
+
+function getConsultationSummary(item: Consultation, elderName?: string) {
+  if (item.family_visible_summary) return item.family_visible_summary;
+  return `咨询师：${item.counselor_name || '待分配'}${elderName ? ` · 服务对象：${elderName}` : ''}`;
 }
 
 export default function CounselingPage() {
@@ -88,6 +98,7 @@ export default function CounselingPage() {
   const [counselors, setCounselors] = useState<Counselor[]>([]);
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [users, setUsers] = useState<FamilyUser[]>([]);
+  const familySession = useMemo(() => getFamilySession(), []);
 
   const loadData = useCallback(async () => {
     try {
@@ -145,8 +156,9 @@ export default function CounselingPage() {
 
     try {
       setSubmitting(true);
+      const familyId = requireCurrentFamilyId(familySession);
       await createFamilyConsultation({
-        family_id: DEFAULT_FAMILY_ID,
+        family_id: familyId,
         elderly_id: elderUser?.id,
         counselor_id: targetCounselor.id,
         consultation_type: selectedType,
@@ -229,15 +241,22 @@ export default function CounselingPage() {
             </View>
             {upcomingConsultation ? (
               <Text className={`ff-chip ff-chip--${getStatusLabel(upcomingConsultation.status).tone}`}>
-                {getStatusLabel(upcomingConsultation.status).label}
+                {getStatusText(upcomingConsultation)}
               </Text>
             ) : null}
           </View>
           <Text className='ff-card-text'>
             {upcomingConsultation
-              ? `咨询师：${upcomingConsultation.counselor_name || '待分配'}${elderUser ? ` · 服务对象：${elderUser.name}` : ''}`
+              ? getConsultationSummary(upcomingConsultation, elderUser?.name)
               : '点击下方按钮后，会用当前选择的咨询方式为家庭创建一条真实预约记录。'}
           </Text>
+          {upcomingConsultation?.can_reschedule || upcomingConsultation?.can_cancel ? (
+            <Text className='ff-card-subtitle'>
+              {upcomingConsultation.can_reschedule ? '支持改约' : ''}
+              {upcomingConsultation.can_reschedule && upcomingConsultation.can_cancel ? ' · ' : ''}
+              {upcomingConsultation.can_cancel ? '支持取消' : ''}
+            </Text>
+          ) : null}
           <Button className='ff-download-button ff-download-button--pink' loading={submitting} onClick={() => void advanceUpcoming()}>
             {getNextActionLabel(upcomingConsultation)}
           </Button>
@@ -284,6 +303,7 @@ export default function CounselingPage() {
                     <Text>{item.name}</Text>
                     <Text>{item.title}</Text>
                     <Text>{item.specialty || '老年心理、家庭照护'}</Text>
+                    <Text>{item.next_available_text || item.availability_text || '等待咨询师确认可约时段'}</Text>
                   </View>
                   <View>
                     <Text className={`ff-chip ff-chip--${item.available ? 'green' : 'amber'}`}>
@@ -315,9 +335,9 @@ export default function CounselingPage() {
                   <View className='ff-record-row__body'>
                     <Text>{getTypeLabel(item.consultation_type)}</Text>
                     <Text>{formatDateTimeText(item.scheduled_time)} · {item.counselor_name || '待分配咨询师'}</Text>
-                    <Text>{item.note || '本次咨询没有补充备注。'}</Text>
+                    <Text>{item.family_visible_summary || item.note || '本次咨询没有补充备注。'}</Text>
                   </View>
-                  <Text className={`ff-chip ff-chip--${getStatusLabel(item.status).tone}`}>{getStatusLabel(item.status).label}</Text>
+                  <Text className={`ff-chip ff-chip--${getStatusLabel(item.status).tone}`}>{getStatusText(item)}</Text>
                 </View>
               ))
             ) : (

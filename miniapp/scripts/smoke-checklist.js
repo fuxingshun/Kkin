@@ -116,8 +116,10 @@ async function checkLiveUserCrud() {
 
 async function main() {
   const appConfig = readText('miniapp/src/app.config.ts');
+  const appCss = readText('miniapp/src/app.css');
   const miniappConfig = readText('miniapp/config/index.js');
   const miniappEnv = readText('miniapp/.env');
+  const rootPackage = readText('package.json');
   const miniappRequest = readText('miniapp/src/utils/request.ts');
   const miniappAuth = readText('miniapp/src/services/auth.ts');
   const elderlyService = readText('miniapp/src/services/elderly.ts');
@@ -125,19 +127,44 @@ async function main() {
   const familyService = readText('miniapp/src/services/family.ts');
   const serviceService = readText('miniapp/src/services/service.ts');
   const loginPage = readText('miniapp/src/pages/login/index.tsx');
+  const userAgreementPage = readText('miniapp/src/pages/legal/user-agreement/index.tsx');
+  const privacyPolicyPage = readText('miniapp/src/pages/legal/privacy-policy/index.tsx');
   const elderlyHomePage = readText('miniapp/src/pages/elderly/home/index.tsx');
+  const elderlyCounselorListPage = readText('miniapp/src/pages/elderly/counselor-list/index.tsx');
+  const elderlyCounselorDetailPage = readText('miniapp/src/pages/elderly/counselor-detail/index.tsx');
   const familyDashboardPage = readText('miniapp/src/pages/family/dashboard/index.tsx');
+  const familyCounselingPage = readText('miniapp/src/pages/family/counseling/index.tsx');
+  const familyCarePage = readText('miniapp/src/pages/family/care/index.tsx');
+  const familyMediaPage = readText('miniapp/src/pages/family/media/index.tsx');
+  const familyMessagesPage = readText('miniapp/src/pages/family/messages/index.tsx');
+  const familyAlertsPage = readText('miniapp/src/pages/family/alerts/index.tsx');
+  const familyProfilePage = readText('miniapp/src/pages/family/profile/index.tsx');
   const serviceCaseDetailPage = readText('miniapp/src/pages/service/case-detail/index.tsx');
+  const serviceWorkspacePage = readText('miniapp/src/pages/service/workspace/index.tsx');
+  const serviceTasksPage = readText('miniapp/src/pages/service/tasks/index.tsx');
+  const serviceFollowupPage = readText('miniapp/src/pages/service/followup/index.tsx');
+  const serviceConsultationsPage = readText('miniapp/src/pages/service/consultations/index.tsx');
   const serviceSession = readText('miniapp/src/utils/serviceSession.ts');
   const adminApi = readText('src/admin/api.ts');
   const adminMain = readText('src/admin/main.tsx');
   const apiTokenInterceptor = readText('server-java/src/main/java/com/kinecho/server/config/ApiTokenInterceptor.java');
+  const webConfig = readText('server-java/src/main/java/com/kinecho/server/config/WebConfig.java');
+  const familyScopeInterceptor = readText('server-java/src/main/java/com/kinecho/server/config/FamilyScopeInterceptor.java');
+  const familyScopeRequestBodyAdvice = readText('server-java/src/main/java/com/kinecho/server/config/FamilyScopeRequestBodyAdvice.java');
   const userController = readText('server-java/src/main/java/com/kinecho/server/controller/KinEchoApiController.java');
   const userService = readText('server-java/src/main/java/com/kinecho/server/service/KinEchoApiService.java');
   const aiCompanionService = readText('server-java/src/main/java/com/kinecho/server/service/AiCompanionService.java');
   const mapper = readText('server-java/src/main/java/com/kinecho/server/mapper/KinEchoMapper.java');
   const appYml = readText('server-java/src/main/resources/application.yml');
+  const prodExampleYml = readText('server-java/src/main/resources/application-prod.example.yml');
+  const miniappMediaUtils = readText('miniapp/src/utils/media.ts');
+  const backupScript = readText('scripts/backup-pilot.ps1');
+  const backupRunbook = readText('docs/封闭试点备份恢复演练.md');
   const checklist = readText('docs/小程序关键路径冒烟测试清单.md');
+  const securityChecklist = readText('docs/封闭试点安全验证清单.md');
+  const dailyOpsChecklist = readText('docs/封闭试点每日运营检查表.md');
+  const pilotRosterTemplate = readText('docs/首批试点名单冻结模板.md');
+  const planAudit = readText('docs/PLAN完成审计.md');
 
   const keyPages = [
     'miniapp/src/pages/login/index.tsx',
@@ -166,7 +193,7 @@ async function main() {
 
   const psychologyConsultingPage = readText('miniapp/src/pages/elderly/psychological-consulting/index.tsx');
   const psychologyVideoPage = readText('miniapp/src/pages/elderly/psychology-video/index.tsx');
-  const psychologyVideoData = readText('miniapp/src/constants/psychologyVideos.ts');
+  const mentalHealthService = readText('miniapp/src/services/mentalHealth.ts');
   const psychologyVideoProxy = readText('server-java/src/main/java/com/kinecho/server/controller/PsychologyVideoAssetController.java');
 
   addCheck(
@@ -177,11 +204,11 @@ async function main() {
 
   addCheck(
     'elderly psychology encyclopedia opens videos',
-    includesAll(psychologyConsultingPage, ['psychologyVideos', 'openPsychologyVideo', '/pages/elderly/psychology-video/index?id=']) &&
-      includesAll(psychologyVideoPage, ['<Swiper', 'vertical', '<Video', 'fallbackVideoUrl', '上下滑动切换中文讲解', '咨询']) &&
-      includesAll(psychologyVideoData, ['getMiniappAssetOrigin', '/psychology-videos/', 'videoUrl', 'fallbackVideoUrl', 'sourceUrl', 'takeaways']) &&
-      !psychologyVideoData.includes('upload.wikimedia.org') &&
-      includesAll(psychologyVideoProxy, ['@GetMapping("/psychology-videos/{videoId}.mp4")', 'file8.foodmate.net', 'flv1.gmw.cn', 'ACCEPT_RANGES', 'HttpResponse.BodyHandlers.ofInputStream']),
+    includesAll(psychologyConsultingPage, ['getPsychologyResources', 'openPsychologyVideo', '/pages/elderly/psychology-video/index?id=']) &&
+      includesAll(psychologyVideoPage, ['<Swiper', 'vertical', '<Video', 'getPsychologyVideoUrl', 'source_url', '上下滑动切换视频', '咨询']) &&
+      includesAll(mentalHealthService, ['getPsychologyResources', '/psychology/resources', 'getPsychologyVideoUrl', '/psychology-videos/', 'source_url', 'takeaways']) &&
+      !mentalHealthService.includes('upload.wikimedia.org') &&
+      includesAll(psychologyVideoProxy, ['@GetMapping("/psychology-videos/{videoId}.mp4")', 'psychologyVideoSource(videoId)', 'ACCEPT_RANGES', 'HttpResponse.BodyHandlers.ofInputStream']),
     'elderly psychology encyclopedia video flow'
   );
 
@@ -192,8 +219,18 @@ async function main() {
   );
 
   addCheck(
+    'formal login legal pages',
+    routeRegistered(appConfig, 'pages/legal/user-agreement/index') &&
+      routeRegistered(appConfig, 'pages/legal/privacy-policy/index') &&
+      includesAll(loginPage, ['/pages/legal/user-agreement/index', '/pages/legal/privacy-policy/index']) &&
+      includesAll(userAgreementPage, ['用户协议', '不提供医学诊断', '高风险事件']) &&
+      includesAll(privacyPolicyPage, ['隐私政策', '受控接口访问', '导出、删除与保留']),
+    'login agreement and privacy policy pages'
+  );
+
+  addCheck(
     'miniapp auth client methods',
-    includesAll(miniappAuth, ['login', '/auth/login']),
+    includesAll(miniappAuth, ['login', '/auth/login', 'getMe', '/me', 'X-KinEcho-Session', 'recordLoginConsent', '/privacy/consents']),
     'miniapp/src/services/auth.ts'
   );
 
@@ -238,11 +275,28 @@ async function main() {
   );
 
   addCheck(
+    'elderly home core action surface',
+    includesAll(elderlyHomePage, [
+      'coreActions',
+      '陪我聊',
+      '联系家人',
+      '今日任务',
+      '记录心情',
+      '/pages/elderly/companion/index',
+      '/pages/elderly/help/index',
+      '/pages/elderly/reminders/index',
+      '/pages/elderly/record/index',
+    ]) &&
+      includesAll(appCss, ['ef-core-actions', 'ef-core-action__label', 'ef-core-action__hint']),
+    'elderly home should keep the first-screen actions focused'
+  );
+
+  addCheck(
     'session scoped miniapp context',
-    includesAll(elderlyService, ['getElderlySession', 'resolveFamilyId', 'resolveElderlyId']) &&
-      includesAll(serviceService, ['getCurrentServiceFamilyId', 'resolveFamilyId']) &&
-      includesAll(serviceSession, ['familyId: string', 'getCurrentServiceFamilyId']) &&
-      includesAll(loginPage, ['saveServiceSession({', 'familyId: result.family_id']),
+      includesAll(elderlyService, ['getElderlySession', 'resolveFamilyId', 'resolveElderlyId', 'resolveWriteFamilyId', 'resolveWriteElderlyId']) &&
+      includesAll(serviceService, ['getCurrentServiceFamilyId', 'resolveFamilyId', 'resolveWriteFamilyId']) &&
+      includesAll(serviceSession, ['familyId: string', 'getCurrentServiceFamilyId', 'requireCurrentServiceFamilyId']) &&
+      includesAll(loginPage, ['saveServiceSession({', 'familyId: service.family_id']),
     'miniapp session-aware services'
   );
 
@@ -258,15 +312,27 @@ async function main() {
   );
 
   addCheck(
+    'family pages require session before writes',
+    includesAll(familyCounselingPage, ['requireCurrentFamilyId', 'family_id: familyId']) &&
+      includesAll(familyCarePage, ['requireCurrentFamilyId', 'family_id: familyId']) &&
+      includesAll(familyMediaPage, ['requireCurrentFamilyId', 'family_id: familyId']) &&
+      includesAll(familyMessagesPage, ['requireCurrentFamilyId', 'family_id: familyId']) &&
+      ![familyCounselingPage, familyCarePage, familyMediaPage, familyMessagesPage, familyAlertsPage].some((text) =>
+        text.includes('DEFAULT_FAMILY_ID')
+      ),
+    'family write pages should not pin DEFAULT_FAMILY_ID'
+  );
+
+  addCheck(
     'elderly and service mutation clients scoped by family',
-    includesAll(elderlyService, ['/elderly/schedules/${scheduleId}/status', 'family_id: resolveFamilyId()']) &&
-      includesAll(serviceService, ['/service/followups/${consultation.id}/status', 'family_id: resolveFamilyId()']),
+    includesAll(elderlyService, ['/elderly/schedules/${scheduleId}/status', 'family_id: resolveWriteFamilyId()', 'elderly_id: resolveWriteElderlyId']) &&
+      includesAll(serviceService, ['/service/followups/${consultation.id}/status', 'family_id: resolveWriteFamilyId()']),
     'miniapp elderly/service mutation context'
   );
 
   addCheck(
     'miniapp api token injection',
-    includesAll(miniappConfig, ['__API_TOKEN__']) && includesAll(miniappRequest, ['Authorization', 'X-KinEcho-Token']),
+    includesAll(miniappConfig, ['__API_TOKEN__']) && includesAll(miniappRequest, ['Authorization', 'X-KinEcho-Token', 'X-KinEcho-Session']),
     'miniapp config + request'
   );
 
@@ -295,6 +361,50 @@ async function main() {
   );
 
   addCheck(
+    'session current-user interface',
+    includesAll(userController, ['@GetMapping("/me")', 'X-KinEcho-Session', 'service.me']) &&
+      includesAll(userService, ['session_token', 'createSessionToken', 'verifySessionToken', 'session_expires_in']),
+    'GET /api/me session contract'
+  );
+
+  addCheck(
+    'session family scope guard',
+    includesAll(familyScopeInterceptor, ['familyScopeSessionRequired', 'session token is required', 'family_id', 'family scope mismatch', 'SessionTokenCodec.extract', 'SessionTokenCodec.verify']) &&
+      includesAll(familyScopeRequestBodyAdvice, ['familyScopeSessionRequired', 'afterBodyRead', 'family_id', 'family scope mismatch', 'ResponseStatusException']) &&
+      includesAll(miniappRequest, ['X-KinEcho-Session']) &&
+      includesAll(adminApi, ['X-KinEcho-Session']),
+    'session family_id compatibility guard'
+  );
+
+  addCheck(
+    'production disables demo phone suffix login',
+    includesAll(userService, ['phoneSuffixLoginEnabled', 'matchesLoginPassword']) &&
+      includesAll(appYml, ['phone-suffix-login-enabled: ${KINECHO_PHONE_SUFFIX_LOGIN_ENABLED:true}']) &&
+      includesAll(prodExampleYml, ['phone-suffix-login-enabled: ${KINECHO_PHONE_SUFFIX_LOGIN_ENABLED:false}']),
+    'production login safety config'
+  );
+
+  addCheck(
+    'uploaded media uses controlled download endpoints',
+    !webConfig.includes('addResourceHandler("/uploads/**")') &&
+      includesAll(userController, ['@GetMapping("/family/media/{mediaId}/file")', '@GetMapping("/family/media/{mediaId}/thumbnail")']) &&
+      includesAll(userService, ['downloadMediaAsset', 'resolveStoredMediaPath', 'mediaAssetUrl', 'media path is outside upload directory']) &&
+      includesAll(miniappMediaUtils, ['path.startsWith(\'/api/\')', 'getMiniappAssetOrigin()']) &&
+      !miniappMediaUtils.includes('/uploads/'),
+    'authenticated media download contract'
+  );
+
+  addCheck(
+    'ai tts audio uses signed temporary urls',
+    !webConfig.includes('addResourceHandler("/uploads/ai-audio/**")') &&
+      includesAll(webConfig, ['"/api/ai/audio/**"', 'addResourceHandler("/uploads/ai-voice/**")']) &&
+      includesAll(userController, ['@GetMapping("/ai/audio/{filename:.+}")']) &&
+      includesAll(userService, ['downloadAiAudio', 'verifySignedPayload', 'invalid or expired audio token', 'aiAudioUrlTtlSeconds']) &&
+      includesAll(aiCompanionService, ['signedAiAudioUrl', 'createSignedPayload', 'api/ai/audio/']),
+    'AI TTS playback should use a short-lived signed URL while ASR voice files stay provider-readable'
+  );
+
+  addCheck(
     'java family scoped mutations',
     includesAll(userService, ['familyScopedUpdate(', 'softDeleteFamilyRecord(', 'requireFamilyRecord(']),
     'KinEchoApiService.java'
@@ -307,13 +417,38 @@ async function main() {
   );
 
   addCheck(
+    'admin service certification review clients',
+    includesAll(adminApi, ['getServiceCertifications', '/admin/service-certifications', 'reviewServiceCertification']) &&
+      includesAll(adminMain, ['服务认证审核', "getServiceCertifications('pending')", 'reviewServiceCertification']),
+    'admin service certification review surface'
+  );
+
+  addCheck(
+    'admin counselor management clients',
+    includesAll(userController, ['@GetMapping("/admin/counselors")', '@PutMapping("/admin/counselors/{counselorId}")']) &&
+      includesAll(userService, ['getAdminCounselors', 'updateAdminCounselor', 'UPDATE counselors SET']) &&
+      includesAll(adminApi, ['getAdminCounselors', '/admin/counselors', 'updateAdminCounselor', 'ApiCounselor']) &&
+      includesAll(adminMain, ['咨询师管理', 'getAdminCounselors', 'updateAdminCounselor', '暂停接单', '开放预约']),
+    'admin should manage counselor availability'
+  );
+
+  addCheck(
+    'admin psychology content inventory',
+    includesAll(adminApi, ['getPsychologyResources', '/psychology/resources', 'createPsychologyVideo', 'updatePsychologyVideo', 'createPsychologyQuestion', 'updatePsychologyQuestion', 'ApiPsychologyResources']) &&
+      includesAll(adminMain, ['心理内容库', 'getPsychologyResources', 'createPsychologyVideo', 'updatePsychologyVideo', 'createPsychologyQuestion', 'updatePsychologyQuestion', 'reply_count']),
+    'admin content management should expose psychology inventory'
+  );
+
+  addCheck(
     'admin core pages wired to real api',
     includesAll(adminMain, [
       'handleDeleteUser',
       'ServicePageLive',
       'AnalyticsPageLive',
-      'getAdminServiceSummary()',
-      'getAdminAnalytics(undefined, { months: 6, days: 7 })',
+      'getAdminFamilies()',
+      'selectedFamilyId={selectedFamilyId}',
+      'getAdminServiceSummary(selectedFamilyId)',
+      'getAdminAnalytics(selectedFamilyId, { months: 6, days: 7 })',
       'casePreviewRows',
     ]),
     'src/admin/main.tsx'
@@ -344,10 +479,24 @@ async function main() {
       '@PostMapping("/service/followups")',
       '@PutMapping("/service/followups/{consultationId}/status")',
       '@PostMapping("/service/records")',
+      '@GetMapping("/admin/service-certifications")',
+      '@PutMapping("/admin/service-certifications/{certificationId}")',
       '@GetMapping("/admin/service-summary")',
       '@GetMapping("/admin/analytics")',
     ]),
     'KinEchoApiController.java'
+  );
+
+  addCheck(
+    'java service certification review contract',
+    includesAll(userService, [
+      'getServiceCertifications',
+      'reviewServiceCertification',
+      'status must be approved or rejected',
+      'reject_reason is required',
+      'UPDATE service_certifications',
+    ]),
+    'KinEchoApiService.java'
   );
 
   addCheck(
@@ -371,6 +520,63 @@ async function main() {
   );
 
   addCheck(
+    'privacy consent and data request contract',
+    includesAll(userController, ['@PostMapping("/privacy/consents")', '@GetMapping("/privacy/export")', '@PostMapping("/privacy/requests")', '@GetMapping("/admin/privacy/requests")', '@PutMapping("/admin/privacy/requests/{requestId}")']) &&
+      includesAll(userService, ['recordConsent', 'exportFamilyData', 'createPrivacyRequest', 'getPrivacyRequests', 'reviewPrivacyRequest', 'privacy_data_exported', 'privacy_request_created', 'privacy_request_reviewed']) &&
+      includesAll(mapper, ['consent_records', 'privacy_requests', 'idx_consent_family_created', 'idx_privacy_requests_family_created']) &&
+      includesAll(familyService, ['recordConsent', 'getConsentRecords', 'exportFamilyData', 'createPrivacyRequest']) &&
+      includesAll(loginPage, ['recordVerifiedLoginConsents', 'user-agreement', 'privacy-policy', 'LOGIN_CONSENT_VERSION']) &&
+      includesAll(adminApi, ['getPrivacyRequests', '/admin/privacy/requests', 'reviewPrivacyRequest']) &&
+      includesAll(adminMain, ['隐私请求队列', 'getPrivacyRequests(selectedFamilyId', 'reviewPrivacyRequest']) &&
+      miniappAuth.includes('miniapp-login') &&
+      includesAll(familyProfilePage, ['handleExportData', 'submitPrivacyRequest', 'exportFamilyData', 'createPrivacyRequest', '导出家庭数据', '提交删除请求']),
+    'privacy consent records, family data export, and deletion request workflow'
+  );
+
+  addCheck(
+    'retention policy operations contract',
+    includesAll(userController, ['@GetMapping("/admin/retention/summary")', 'service.retentionSummary()']) &&
+      includesAll(userService, ['retentionSummary', 'ai_audio_retention_count', 'ai_voice_retention_days', 'mental_frame_retention_days', 'audit_log_retention_days']) &&
+      includesAll(appYml, ['ai-voice-retention-days', 'mental-frame-retention-days', 'ai-chat-retention-days', 'consultation-retention-days', 'audit-log-retention-days']) &&
+      includesAll(adminApi, ['getRetentionSummary', '/admin/retention/summary', 'ApiRetentionSummary']) &&
+      includesAll(adminMain, ['保留策略', 'getRetentionSummary', 'ai_audio_retention_count']),
+    'backend and admin should expose pilot retention policy'
+  );
+
+  addCheck(
+    'backup and restore drill contract',
+    exists('scripts/backup-pilot.cmd') &&
+      includesAll(rootPackage, ['"backup:pilot"', 'scripts/backup-pilot.cmd']) &&
+      includesAll(backupScript, ['mysqldump', 'Compress-Archive', 'manifest.json', 'MANUAL_ACTIONS.txt']) &&
+      includesAll(backupRunbook, ['封闭试点备份恢复演练', 'npm run backup:pilot', 'database.sql', 'uploads.zip', '恢复演练']) &&
+      includesAll(checklist, ['管理端健康检查']),
+    'pilot backup script and restore runbook'
+  );
+
+  addCheck(
+    'manual security checklist covers pilot risks',
+    exists('docs/封闭试点安全验证清单.md') &&
+      includesAll(securityChecklist, [
+        'KINECHO_FAMILY_SCOPE_SESSION_REQUIRED=true',
+        'KINECHO_PHONE_SUFFIX_LOGIN_ENABLED=false',
+        'SEC-01',
+        'SEC-02',
+        'SEC-03',
+        'SEC-06',
+        'SEC-10',
+        'SEC-13',
+        'SEC-15',
+        'SEC-18',
+        '跨家庭',
+        '未登录',
+        'Token',
+        '上传',
+        '隐私',
+      ]),
+    'security checklist should cover cross-family access, unauthenticated access, token, upload, and privacy audit cases'
+  );
+
+  addCheck(
     'ai companion quick fallback contract',
     includesAll(aiCompanionService, [
       'INTERACTIVE_CHAT_TIMEOUT_SECONDS = 10',
@@ -388,9 +594,53 @@ async function main() {
   );
 
   addCheck(
+    'ai companion crisis escalation contract',
+    includesAll(userController, ['@RequestParam(required = false) String family_id', '@RequestParam(required = false) Long elderly_id']) &&
+      includesAll(userService, ['hasAiCrisisSignal', 'aiCrisisResponse', 'ai_crisis', 'insertAlert(alert, "ai_companion")', 'ai_crisis_detected']) &&
+      includesAll(aiCompanionServiceClient, ['getElderlySession', 'family_id: session.familyId', 'elderly_id: session.elderlyId', 'crisis_detected']),
+    'AI companion should create a high-risk family/service alert before normal chat fallback'
+  );
+
+  addCheck(
     'service backend aggregate contract',
     includesAll(userService, ['getServiceTasks', 'getServiceCases', 'getServiceCaseDetail', 'getServiceFollowups', 'createServiceFollowup', 'createServiceRecord']),
     'KinEchoApiService.java'
+  );
+
+  addCheck(
+    'consultation lifecycle family contract',
+    includesAll(userService, [
+      'validateConsultationLifecycle',
+      'attachConsultationFamilySummary',
+      'family_visible_summary',
+      'only scheduled consultations can be rescheduled',
+      'cancellation reason is required',
+    ]) &&
+      includesAll(familyService, ['status_label', 'family_visible_summary', 'next_action', 'can_cancel', 'can_reschedule']) &&
+      includesAll(familyCounselingPage, ['family_visible_summary', 'next_action', 'status_label', 'can_reschedule', 'can_cancel']) &&
+      includesAll(serviceService, ['statusLabel', 'familyVisibleSummary', 'nextAction', 'canCancel', 'canReschedule']) &&
+      includesAll(serviceWorkspacePage, ['familyVisibleSummary', 'nextAction']) &&
+      includesAll(serviceFollowupPage, ['getFollowupStatusLabel', 'getFollowupActionLabel', 'familyVisibleSummary']) &&
+      includesAll(serviceConsultationsPage, ['getConsultationStatusLabel', 'getConsultationActionLabel', 'familyVisibleSummary']),
+    'consultation status rules and family visible summaries'
+  );
+
+  addCheck(
+    'counselor availability booking contract',
+    includesAll(userService, [
+      'attachCounselorAvailabilitySummary',
+      'validateCounselorBooking',
+      'available_slot_count',
+      'next_available_text',
+      'counselor slot is already booked',
+      'counselor is not available',
+    ]) &&
+      includesAll(familyService, ['availability_text', 'available_slot_count', 'next_available_text']) &&
+      includesAll(elderlyService, ['availability_text', 'available_slot_count', 'next_available_text']) &&
+      includesAll(familyCounselingPage, ['next_available_text', 'availability_text']) &&
+      includesAll(elderlyCounselorListPage, ['next_available_text', 'availability_text']) &&
+      includesAll(elderlyCounselorDetailPage, ['next_available_text']),
+    'counselor slots should be visible and double booking should be rejected'
   );
 
   addCheck(
@@ -403,6 +653,33 @@ async function main() {
     'manual smoke checklist covers new elderly paths',
     includesAll(checklist, ['基本信息维护', '绑定码', '查看详细趋势', '/api/users/{userId}/binding-code', '/api/users/bind-by-code']),
     'docs/小程序关键路径冒烟测试清单.md'
+  );
+
+  addCheck(
+    'manual smoke checklist covers real-device abnormal paths',
+    includesAll(checklist, ['真机与异常场景', '大字体', '高对比', '录音权限拒绝', '摄像头权限拒绝', '弱网请求', '离线恢复', '语音播放失败']),
+    'docs/小程序关键路径冒烟测试清单.md'
+  );
+
+  addCheck(
+    'daily pilot operations checklist covers phase 5 metrics',
+    exists('docs/封闭试点每日运营检查表.md') &&
+      includesAll(dailyOpsChecklist, ['高风险工单', 'AI 失败率', '老人使用率', '家属查看率', '咨询完成率', '随访完成率', '隐私请求积压', '升级规则']),
+    'closed pilot daily operations checklist'
+  );
+
+  addCheck(
+    'pilot roster freeze template covers required participants',
+    exists('docs/首批试点名单冻结模板.md') &&
+      includesAll(pilotRosterTemplate, ['试点家庭', '服务人员', '咨询师', '管理员', '冻结确认', '10-30 户真实家庭', 'SLA', '可预约时段']),
+    'closed pilot roster freeze template'
+  );
+
+  addCheck(
+    'plan completion audit records remaining blockers',
+    exists('docs/PLAN完成审计.md') &&
+      includesAll(planAudit, ['审计结论', '交付项对照', '当前发布门禁', '本轮跳过项', '完成判定', '跳过提供真实试点名单以及目标环境参数', '微信生产登录', '真机', '安全验证', '备份恢复演练']),
+    'PLAN completion audit should map evidence and remaining blockers'
   );
 
   await checkApiHealth();

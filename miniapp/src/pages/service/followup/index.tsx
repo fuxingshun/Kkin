@@ -19,6 +19,14 @@ function getStatusLabel(status: ServiceFollowup['status']) {
   return status;
 }
 
+function getFollowupStatusLabel(item: ServiceFollowup) {
+  return item.statusLabel || getStatusLabel(item.status);
+}
+
+function getFollowupActionLabel(item: ServiceFollowup) {
+  return item.nextAction || (item.status === 'scheduled' ? '开始随访' : item.status === 'in_progress' ? '完成随访' : '已完成');
+}
+
 export default function ServiceFollowupPage() {
   const [followups, setFollowups] = useState<ServiceFollowup[]>([]);
   const [cases, setCases] = useState<ServiceCase[]>([]);
@@ -115,16 +123,18 @@ export default function ServiceFollowupPage() {
                 <View className='service-follow-card__head'>
                   <Text className='service-follow-row__time'>{formatDateTimeText(item.scheduledTime)}</Text>
                   <Text className='service-card-title'>{item.elderlyName}</Text>
-                  <Text className='service-chip'>{getStatusLabel(item.status)}</Text>
+                  <Text className='service-chip'>{getFollowupStatusLabel(item)}</Text>
                 </View>
                 <Text className='service-card-meta'>{item.consultationType}</Text>
-                {item.note ? <Text className='service-card-text'>{item.note}</Text> : null}
+                {item.familyVisibleSummary || item.note ? (
+                  <Text className='service-card-text'>{item.familyVisibleSummary || item.note}</Text>
+                ) : null}
                 <Button
                   className='service-button service-button--primary'
                   disabled={item.status === 'completed'}
                   onClick={() => void updateFollowup(item)}
                 >
-                  {item.status === 'scheduled' ? '开始随访' : item.status === 'in_progress' ? '完成随访' : '已完成'}
+                  {getFollowupActionLabel(item)}
                 </Button>
               </View>
             ))

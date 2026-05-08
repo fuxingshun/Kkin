@@ -30,6 +30,19 @@ function getPriorityTone(priority: ServiceTask['priority']) {
   return 'low';
 }
 
+function formatTaskSla(task: ServiceTask) {
+  if (task.overdue) {
+    return 'SLA overdue';
+  }
+  if (task.remainingMinutes > 0) {
+    return `${task.remainingMinutes} min left`;
+  }
+  if (task.slaDeadlineAt) {
+    return `SLA ${formatDateTimeText(task.slaDeadlineAt)}`;
+  }
+  return '';
+}
+
 function isToday(value: string) {
   const date = new Date(value);
   const now = new Date();
@@ -220,6 +233,12 @@ export default function ServiceWorkspacePage() {
                       <Text className={`sw-badge sw-badge--${tone}`}>{getPriorityLabel(item.priority)}</Text>
                     </View>
                     <Text className='sw-request__topic'>{item.reason}</Text>
+                    {formatTaskSla(item) ? (
+                      <Text className={`sw-request__sla ${item.overdue ? 'sw-request__sla--overdue' : ''}`}>
+                        {formatTaskSla(item)}
+                      </Text>
+                    ) : null}
+                    {item.escalationHint ? <Text className='sw-request__hint'>{item.escalationHint}</Text> : null}
                     <View className='sw-request__actions'>
                       <Button
                         className='sw-mini-btn sw-mini-btn--primary'
@@ -269,12 +288,12 @@ export default function ServiceWorkspacePage() {
                       </View>
                       <View>
                         <Text className='sw-appointment__name'>{item.elderlyName}</Text>
-                        <Text className='sw-appointment__topic'>{item.note || '按计划随访'}</Text>
+                        <Text className='sw-appointment__topic'>{item.familyVisibleSummary || item.note || '按计划随访'}</Text>
                       </View>
                     </View>
                     <View className='sw-appointment__bottom'>
                       <Text className='sw-appointment__type'>{item.consultationType}</Text>
-                      <Text className='sw-enter-btn' onClick={() => void enterFollowup(item)}>进入随访</Text>
+                      <Text className='sw-enter-btn' onClick={() => void enterFollowup(item)}>{item.nextAction || '进入随访'}</Text>
                     </View>
                   </View>
                 </View>

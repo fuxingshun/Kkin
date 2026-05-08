@@ -13,6 +13,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -369,10 +370,20 @@ public class AiCompanionService {
             Path target = properties.aiAudioDir.resolve(filename);
             Files.write(target, audio);
             pruneAudioFiles();
-            return new SpeechResult(absoluteAssetUrl(origin, "uploads/ai-audio/" + filename), "", "bailian");
+            return new SpeechResult(signedAiAudioUrl(origin, filename), "", "bailian");
         } catch (Exception ex) {
             return new SpeechResult("", ex.getMessage(), "bailian");
         }
+    }
+
+    private String signedAiAudioUrl(String origin, String filename) {
+        String token = SessionTokenCodec.createSignedPayload(
+            db.map("purpose", "ai_audio", "file", filename),
+            properties.aiAudioUrlTtlSeconds,
+            properties,
+            mapper
+        );
+        return absoluteAssetUrl(origin, "api/ai/audio/" + urlEncode(filename) + "?token=" + urlEncode(token));
     }
 
     private Map<String, Object> postJson(String url, Map<String, Object> payload, String authorization, int timeoutSeconds) throws Exception {
@@ -627,6 +638,10 @@ public class AiCompanionService {
     private String absoluteAssetUrl(String origin, String relativePath) {
         String base = origin == null || origin.isBlank() ? "http://127.0.0.1:8000" : origin;
         return base.replaceAll("/$", "") + "/" + relativePath.replace("\\", "/").replaceAll("^/+", "");
+    }
+
+    private String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private String bearer(String key) {

@@ -2,7 +2,12 @@ import { DEFAULT_ELDERLY_ID, DEFAULT_FAMILY_ID } from '@/config/runtime';
 import { type CareInsight } from '@/services/family';
 import { getUploadMediaUrl, getUploadThumbnailUrl } from '@/utils/media';
 import { buildQueryString, request } from '@/utils/request';
-import { getElderlyChatUsername, getElderlySession } from '@/utils/session';
+import {
+  getElderlyChatUsername,
+  getElderlySession,
+  requireCurrentElderlyFamilyId,
+  requireCurrentElderlyId,
+} from '@/utils/session';
 
 export type MoodType = 'happy' | 'calm' | 'sad' | 'anxious' | 'angry' | 'tired';
 
@@ -52,7 +57,9 @@ export interface RecommendedMedia {
   title: string;
   description?: string;
   file_path: string;
+  file_url?: string;
   thumbnail_path?: string;
+  thumbnail_url?: string;
   tags: string[];
   moods: string[];
   occasions: string[];
@@ -93,6 +100,8 @@ export interface Counselor {
     supervision?: string;
   };
   availability_text?: string;
+  available_slot_count?: number;
+  next_available_text?: string;
   format_text?: string;
   location?: string;
   specialties?: Array<{
@@ -164,7 +173,9 @@ export interface MediaHistoryEntry {
   title: string;
   media_type: 'photo' | 'video';
   file_path: string;
+  file_url?: string;
   thumbnail_path?: string;
+  thumbnail_url?: string;
   feedback_type?: 'like' | 'dislike' | null;
 }
 
@@ -224,13 +235,21 @@ function resolveElderlyId(elderlyId?: number) {
   return getElderlySession().elderlyId || DEFAULT_ELDERLY_ID;
 }
 
+function resolveWriteFamilyId(_familyId?: string) {
+  return requireCurrentElderlyFamilyId();
+}
+
+function resolveWriteElderlyId(_elderlyId?: number) {
+  return requireCurrentElderlyId();
+}
+
 export async function sendSOSAlert(
   familyId = DEFAULT_FAMILY_ID,
   elderlyId = DEFAULT_ELDERLY_ID,
   contacts: FamilyUser[] = []
 ) {
-  const resolvedFamilyId = resolveFamilyId(familyId);
-  const resolvedElderlyId = resolveElderlyId(elderlyId);
+  const resolvedFamilyId = resolveWriteFamilyId(familyId);
+  const resolvedElderlyId = resolveWriteElderlyId(elderlyId);
   const now = new Date();
   const activeContacts = contacts.filter((contact) => contact.user_type === 'family');
   const data = await request<{ success?: boolean }>('/elderly/alerts', {
@@ -265,8 +284,8 @@ export async function sendContactFamilyAlert(
   elderlyId = DEFAULT_ELDERLY_ID,
   contact?: FamilyUser
 ) {
-  const resolvedFamilyId = resolveFamilyId(familyId);
-  const resolvedElderlyId = resolveElderlyId(elderlyId);
+  const resolvedFamilyId = resolveWriteFamilyId(familyId);
+  const resolvedElderlyId = resolveWriteElderlyId(elderlyId);
   const now = new Date();
   const targetName = contact?.name?.trim();
   const targetPhone = contact?.phone?.trim();
@@ -314,7 +333,7 @@ export async function updateScheduleStatus(scheduleId: number, status: NonNullab
   const data = await request<{ success: boolean }>(`/elderly/schedules/${scheduleId}/status`, {
     method: 'POST',
     data: {
-      family_id: resolveFamilyId(),
+      family_id: resolveWriteFamilyId(),
       status,
     },
   });
@@ -340,7 +359,7 @@ export async function createUser(payload: {
     method: 'POST',
     data: {
       ...payload,
-      family_id: resolveFamilyId(payload.family_id),
+      family_id: resolveWriteFamilyId(payload.family_id),
     },
   });
   return data.user_id;
@@ -360,14 +379,14 @@ export async function updateUser(
     method: 'PUT',
     data: {
       ...payload,
-      family_id: resolveFamilyId(payload.family_id),
+      family_id: resolveWriteFamilyId(payload.family_id),
     },
   });
   return data.success;
 }
 
 export async function deleteFamilyUser(userId: number, familyId = DEFAULT_FAMILY_ID, operator = 'elderly') {
-  const params = buildQueryString({ family_id: resolveFamilyId(familyId), operator });
+  const params = buildQueryString({ family_id: resolveWriteFamilyId(familyId), operator });
   const data = await request<{ success: boolean }>(`/users/${userId}?${params}`, {
     method: 'DELETE',
   });
@@ -375,7 +394,7 @@ export async function deleteFamilyUser(userId: number, familyId = DEFAULT_FAMILY
 }
 
 export async function getUserBindingCode(userId: number, familyId = DEFAULT_FAMILY_ID) {
-  const params = buildQueryString({ family_id: resolveFamilyId(familyId) });
+  const params = buildQueryString({ family_id: resolveWriteFamilyId(familyId) });
   return request<BindingCodeInfo>(`/users/${userId}/binding-code?${params}`);
 }
 
@@ -431,7 +450,7 @@ export async function recordMediaPlay(mediaId: number, elderlyId = DEFAULT_ELDER
   await request(`/elderly/media/${mediaId}/play`, {
     method: 'POST',
     data: {
-      elderly_id: resolveElderlyId(elderlyId),
+      elderly_id: resolveWriteElderlyId(elderlyId),
       triggered_by: 'manual',
       completed: 1,
     },
@@ -446,7 +465,7 @@ export async function submitMediaFeedback(
   await request(`/elderly/media/${mediaId}/feedback`, {
     method: 'POST',
     data: {
-      elderly_id: resolveElderlyId(elderlyId),
+      elderly_id: resolveWriteElderlyId(elderlyId),
       feedback_type: feedbackType,
     },
   });
@@ -486,8 +505,8 @@ export async function createMoodRecord(
   const data = await request<{ record_id: number }>('/elderly/moods', {
     method: 'POST',
     data: {
-      family_id: resolveFamilyId(familyId),
-      elderly_id: resolveElderlyId(elderlyId),
+      family_id: resolveWriteFamilyId(familyId),
+      elderly_id: resolveWriteElderlyId(elderlyId),
       mood_type: moodType,
       mood_score: options.moodScore ?? moodScoreMap[moodType],
       note: options.note || '',
@@ -600,8 +619,8 @@ export async function createConsultation(payload: {
   const data = await request<{ consultation_id: number }>('/consultations', {
     method: 'POST',
     data: {
-      family_id: resolveFamilyId(payload.family_id || DEFAULT_FAMILY_ID),
-      elderly_id: resolveElderlyId(payload.elderly_id),
+      family_id: resolveWriteFamilyId(payload.family_id),
+      elderly_id: resolveWriteElderlyId(payload.elderly_id),
       counselor_id: payload.counselor_id,
       consultation_type: payload.consultation_type,
       scheduled_time: payload.scheduled_time,
@@ -631,7 +650,7 @@ export async function updateConsultation(
   const data = await request<{ success: boolean }>(`/consultations/${consultationId}`, {
     method: 'PUT',
     data: {
-      family_id: resolveFamilyId(),
+      family_id: resolveWriteFamilyId(),
       ...payload,
     },
   });
@@ -648,8 +667,8 @@ export async function requestPsychologicalSupport(payload: {
   const data = await request<{ success?: boolean; alert_id: number }>('/elderly/alerts', {
     method: 'POST',
     data: {
-      family_id: resolveFamilyId(payload.family_id || DEFAULT_FAMILY_ID),
-      elderly_id: resolveElderlyId(payload.elderly_id),
+      family_id: resolveWriteFamilyId(payload.family_id),
+      elderly_id: resolveWriteElderlyId(payload.elderly_id),
       alert_type: 'psychological_support',
       level: payload.level || 'medium',
       title: '心理咨询协同',

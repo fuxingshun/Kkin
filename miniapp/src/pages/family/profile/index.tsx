@@ -2,8 +2,16 @@ import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow } from '@tarojs/taro';
 import { Text, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
-import { getAlertStats, getFamilySchedules, getFamilyUsers, type FamilyUser, type Schedule } from '@/services/family';
-import { getFamilySession } from '@/utils/familySession';
+import {
+  createPrivacyRequest,
+  exportFamilyData,
+  getAlertStats,
+  getFamilySchedules,
+  getFamilyUsers,
+  type FamilyUser,
+  type Schedule,
+} from '@/services/family';
+import { getFamilySession, requireCurrentFamilyId } from '@/utils/familySession';
 import { useNavigationMetrics } from '@/utils/navigation';
 
 type AlertStats = Awaited<ReturnType<typeof getAlertStats>>;
@@ -14,6 +22,7 @@ export default function ProfilePage() {
   const [users, setUsers] = useState<FamilyUser[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [alertStats, setAlertStats] = useState<AlertStats | null>(null);
+  const [privacySubmitting, setPrivacySubmitting] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -50,6 +59,71 @@ export default function ProfilePage() {
       content,
       showCancel: false,
     });
+  }
+
+  function exportSummary(data: Record<string, unknown[]>) {
+    return Object.entries(data)
+      .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.length : 0}`)
+      .join('\n');
+  }
+
+  async function handleExportData() {
+    try {
+      setPrivacySubmitting(true);
+      requireCurrentFamilyId(familySession);
+      const result = await exportFamilyData();
+      const exportJson = JSON.stringify(result, null, 2);
+      await Taro.setClipboardData({ data: exportJson });
+      await Taro.showModal({
+        title: '家庭数据已导出',
+        content: `已复制到剪贴板。\n${exportSummary(result.data)}`,
+        showCancel: false,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '数据导出失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    } finally {
+      setPrivacySubmitting(false);
+    }
+  }
+
+  async function submitPrivacyRequest(type: 'delete' | 'correction') {
+    const title = type === 'delete' ? '提交删除请求' : '提交更正请求';
+    const content =
+      type === 'delete'
+        ? '提交后服务人员会核验家庭关系和保留要求，再处理数据删除。'
+        : '提交后服务人员会联系确认需要更正的数据范围。';
+    const result = await Taro.showModal({
+      title,
+      content,
+      confirmText: '提交',
+    });
+
+    if (!result.confirm) {
+      return;
+    }
+
+    try {
+      setPrivacySubmitting(true);
+      const familyId = requireCurrentFamilyId(familySession);
+      const response = await createPrivacyRequest({
+        family_id: familyId,
+        elderly_id: elderUser?.id,
+        request_type: type,
+        requested_by: familySession.familyName || primaryUser?.name || '家属端',
+        reason: `${title}：由家属端发起`,
+        metadata: {
+          source: 'family_profile',
+          family_user_id: familySession.familyUserId,
+        },
+      });
+      Taro.showToast({ title: `已提交 #${response.request_id}`, icon: 'success' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '请求提交失败';
+      Taro.showToast({ title: message, icon: 'none' });
+    } finally {
+      setPrivacySubmitting(false);
+    }
   }
 
   const menu = [
@@ -133,6 +207,36 @@ export default function ProfilePage() {
                 <Text className='ff-chevron'>›</Text>
               </View>
             ))}
+          </View>
+        </View>
+
+        <View className='ff-card'>
+          <Text className='ff-section-title'>隐私与数据</Text>
+          <View className='ff-menu-list'>
+            <View className='ff-menu-row' onClick={() => void handleExportData()}>
+              <View className='ff-menu-row__icon'>导</View>
+              <View className='ff-menu-row__body'>
+                <Text>导出家庭数据</Text>
+                <Text>{privacySubmitting ? '正在处理请求...' : '复制家庭数据包，包含照护、咨询、媒体和审计摘要'}</Text>
+              </View>
+              <Text className='ff-chevron'>›</Text>
+            </View>
+            <View className='ff-menu-row' onClick={() => void submitPrivacyRequest('delete')}>
+              <View className='ff-menu-row__icon'>删</View>
+              <View className='ff-menu-row__body'>
+                <Text>提交删除请求</Text>
+                <Text>由服务人员核验后处理数据删除和保留要求</Text>
+              </View>
+              <Text className='ff-chevron'>›</Text>
+            </View>
+            <View className='ff-menu-row' onClick={() => void submitPrivacyRequest('correction')}>
+              <View className='ff-menu-row__icon'>改</View>
+              <View className='ff-menu-row__body'>
+                <Text>提交更正请求</Text>
+                <Text>登记需要核对或修正的家庭资料</Text>
+              </View>
+              <Text className='ff-chevron'>›</Text>
+            </View>
           </View>
         </View>
       </View>

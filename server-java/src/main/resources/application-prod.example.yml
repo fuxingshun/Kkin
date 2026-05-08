@@ -1,0 +1,37 @@
+server:
+  port: ${SERVER_PORT:8000}
+  address: ${SERVER_ADDRESS:0.0.0.0}
+
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      maximum-pool-size: ${SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE:20}
+
+kinecho:
+  seed-demo-data: false
+  api-token-enabled: true
+  api-token: ${KINECHO_API_TOKEN}
+  session-signing-key: ${KINECHO_SESSION_SIGNING_KEY}
+  session-ttl-seconds: ${KINECHO_SESSION_TTL_SECONDS:604800}
+  family-scope-session-required: ${KINECHO_FAMILY_SCOPE_SESSION_REQUIRED:true}
+  phone-suffix-login-enabled: ${KINECHO_PHONE_SUFFIX_LOGIN_ENABLED:false}
+  ai-audio-url-ttl-seconds: ${KINECHO_AI_AUDIO_URL_TTL_SECONDS:300}
+  ai-voice-retention-days: ${KINECHO_AI_VOICE_RETENTION_DAYS:7}
+  mental-frame-retention-days: ${KINECHO_MENTAL_FRAME_RETENTION_DAYS:30}
+  ai-chat-retention-days: ${KINECHO_AI_CHAT_RETENTION_DAYS:180}
+  consultation-retention-days: ${KINECHO_CONSULTATION_RETENTION_DAYS:730}
+  audit-log-retention-days: ${KINECHO_AUDIT_LOG_RETENTION_DAYS:365}
+  demo-login-password: ${KINECHO_DEMO_LOGIN_PASSWORD}
+  service-username: ${KINECHO_SERVICE_USERNAME}
+  service-password: ${KINECHO_SERVICE_PASSWORD}
+  service-family-id: ${KINECHO_SERVICE_FAMILY_ID}
+  service-display-name: ${KINECHO_SERVICE_DISPLAY_NAME:服务专员}
+  admin-username: ${KINECHO_ADMIN_USERNAME}
+  admin-password: ${KINECHO_ADMIN_PASSWORD}
+  admin-display-name: ${KINECHO_ADMIN_DISPLAY_NAME:平台管理员}
+  bailian-api-key: ${KINECHO_BAILIAN_API_KEY}
+  bailian-asr-file-base-url: ${KINECHO_BAILIAN_ASR_FILE_BASE_URL}

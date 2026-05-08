@@ -7,6 +7,7 @@ export interface ServiceSession {
   displayName?: string;
   familyId: string;
   wechatOpenid?: string;
+  sessionToken?: string;
   certificationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
 }
 
@@ -35,8 +36,26 @@ export function getServiceSession(): ServiceSession {
     displayName: normalizeText(stored?.displayName) || '服务专员',
     familyId: normalizeFamilyId(stored?.familyId),
     wechatOpenid: normalizeText(stored?.wechatOpenid),
+    sessionToken: normalizeText(stored?.sessionToken),
     certificationStatus: normalizeCertificationStatus(stored?.certificationStatus),
   };
+}
+
+export function hasServiceSessionContext(session = getServiceSession()) {
+  return Boolean(
+    session.sessionToken ||
+      session.username ||
+      session.wechatOpenid ||
+      (session.familyId && session.familyId !== DEFAULT_FAMILY_ID)
+  );
+}
+
+export function requireCurrentServiceFamilyId(session = getServiceSession()) {
+  if (!hasServiceSessionContext(session)) {
+    throw new Error('请先以服务人员身份登录');
+  }
+
+  return session.familyId;
 }
 
 export function saveServiceSession(session: Partial<ServiceSession>) {
@@ -47,6 +66,7 @@ export function saveServiceSession(session: Partial<ServiceSession>) {
     displayName: normalizeText(session.displayName ?? current.displayName) || '服务专员',
     familyId: normalizeFamilyId(session.familyId ?? current.familyId),
     wechatOpenid: normalizeText(session.wechatOpenid ?? current.wechatOpenid),
+    sessionToken: normalizeText(session.sessionToken ?? current.sessionToken),
     certificationStatus: normalizeCertificationStatus(session.certificationStatus ?? current.certificationStatus),
   };
   Taro.setStorageSync(SERVICE_SESSION_KEY, next);

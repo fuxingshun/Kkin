@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Picker, Text, Textarea, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
-import { DEFAULT_FAMILY_ID } from '@/config/runtime';
 import {
   createMessage,
   deleteMessage,
@@ -11,7 +10,7 @@ import {
   type FamilyMessage,
   type FamilyUser,
 } from '@/services/family';
-import { getFamilySession } from '@/utils/familySession';
+import { getFamilySession, requireCurrentFamilyId } from '@/utils/familySession';
 import { combineDateTime, formatDateTimeText, formatDateValue, formatRelativeTime, formatTimeValue } from '@/utils/format';
 import { useNavigationMetrics } from '@/utils/navigation';
 
@@ -125,7 +124,7 @@ export default function FamilyMessagesPage() {
         id: familySession.familyUserId || 0,
         user_type: 'family',
         name: familySession.familyName || '当前家属',
-        family_id: familySession.familyId || DEFAULT_FAMILY_ID,
+        family_id: familySession.familyId,
       } as FamilyUser;
     }
 
@@ -142,8 +141,9 @@ export default function FamilyMessagesPage() {
 
     try {
       setSaving(true);
+      const familyId = requireCurrentFamilyId(familySession);
       await createMessage({
-        family_id: currentSender?.family_id || familySession.familyId || DEFAULT_FAMILY_ID,
+        family_id: familyId,
         content: content.trim(),
         sender_name: currentSenderName,
         sender_relation: '家属',
@@ -168,9 +168,10 @@ export default function FamilyMessagesPage() {
     try {
       const next = new Date();
       next.setMinutes(next.getMinutes() + 5);
+      const familyId = requireCurrentFamilyId(familySession);
 
       await createMessage({
-        family_id: currentSender?.family_id || familySession.familyId || item.family_id || DEFAULT_FAMILY_ID,
+        family_id: familyId,
         content: item.content,
         sender_name: currentSenderName,
         sender_relation: '家属',

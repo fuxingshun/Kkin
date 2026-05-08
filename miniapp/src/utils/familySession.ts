@@ -9,6 +9,7 @@ export interface FamilySession {
   elderlyName?: string;
   bindingCode?: string;
   wechatOpenid?: string;
+  sessionToken?: string;
 }
 
 const FAMILY_SESSION_KEY = 'kin-family-session';
@@ -36,7 +37,25 @@ export function getFamilySession(): FamilySession {
     elderlyName: normalizeText(stored?.elderlyName),
     bindingCode: normalizeText(stored?.bindingCode),
     wechatOpenid: normalizeText(stored?.wechatOpenid),
+    sessionToken: normalizeText(stored?.sessionToken),
   };
+}
+
+export function hasFamilySessionContext(session = getFamilySession()) {
+  return Boolean(
+    session.sessionToken ||
+      session.familyUserId ||
+      session.familyName ||
+      (session.familyId && session.familyId !== DEFAULT_FAMILY_ID)
+  );
+}
+
+export function requireCurrentFamilyId(session = getFamilySession()) {
+  if (!hasFamilySessionContext(session)) {
+    throw new Error('请先以家属身份登录');
+  }
+
+  return session.familyId;
 }
 
 export function saveFamilySession(session: Partial<FamilySession>) {
@@ -49,6 +68,7 @@ export function saveFamilySession(session: Partial<FamilySession>) {
     elderlyName: normalizeText(session.elderlyName ?? current.elderlyName),
     bindingCode: normalizeText(session.bindingCode ?? current.bindingCode),
     wechatOpenid: normalizeText(session.wechatOpenid ?? current.wechatOpenid),
+    sessionToken: normalizeText(session.sessionToken ?? current.sessionToken),
   };
   Taro.setStorageSync(FAMILY_SESSION_KEY, next);
   return next;

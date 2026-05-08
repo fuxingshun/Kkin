@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Input, Picker, Text, Textarea, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
-import { DEFAULT_FAMILY_ID } from '@/config/runtime';
 import {
   createSchedule,
   deleteSchedule,
@@ -13,6 +12,7 @@ import {
   type Schedule,
 } from '@/services/family';
 import { combineDateTime, formatDateTimeText, formatDateValue, formatTimeValue } from '@/utils/format';
+import { getFamilySession, requireCurrentFamilyId } from '@/utils/familySession';
 import { useNavigationMetrics } from '@/utils/navigation';
 
 const filters = [
@@ -80,6 +80,7 @@ export default function CarePage() {
   const [repeatIndex, setRepeatIndex] = useState(0);
   const [dateValue, setDateValue] = useState(createDefaultScheduleTime().dateValue);
   const [timeValue, setTimeValue] = useState(createDefaultScheduleTime().timeValue);
+  const familySession = useMemo(() => getFamilySession(), []);
 
   const loadData = useCallback(async () => {
     try {
@@ -122,8 +123,9 @@ export default function CarePage() {
 
     try {
       setSaving(true);
+      const familyId = requireCurrentFamilyId(familySession);
       await createSchedule({
-        family_id: DEFAULT_FAMILY_ID,
+        family_id: familyId,
         title: title.trim(),
         description: description.trim(),
         schedule_type: scheduleTypeOptions[typeIndex]?.value || 'other',

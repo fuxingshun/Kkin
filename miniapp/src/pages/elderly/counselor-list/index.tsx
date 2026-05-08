@@ -294,6 +294,9 @@ export default function ElderlyCounselorListPage() {
                     <Text className='pc-counselor-meta'>
                       从业 {counselor.experience || '暂无'} · {counselor.rating || '暂无评分'}
                     </Text>
+                    <Text className='pc-counselor-meta'>
+                      {counselor.next_available_text || counselor.availability_text || '等待咨询师确认可约时段'}
+                    </Text>
                   </View>
                 </View>
 

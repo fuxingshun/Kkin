@@ -25,6 +25,10 @@ kinecho:
   seed-demo-data: ${KINECHO_SEED_DEMO_DATA:false}
   api-token-enabled: ${KINECHO_API_TOKEN_ENABLED:false}
   api-token: ${KINECHO_API_TOKEN:}
+  session-signing-key: ${KINECHO_SESSION_SIGNING_KEY:}
+  session-ttl-seconds: ${KINECHO_SESSION_TTL_SECONDS:604800}
+  family-scope-session-required: ${KINECHO_FAMILY_SCOPE_SESSION_REQUIRED:false}
+  phone-suffix-login-enabled: ${KINECHO_PHONE_SUFFIX_LOGIN_ENABLED:true}
   demo-login-password: ${KINECHO_DEMO_LOGIN_PASSWORD:}
   service-username: ${KINECHO_SERVICE_USERNAME:service}
   service-password: ${KINECHO_SERVICE_PASSWORD:123456}
@@ -38,6 +42,12 @@ kinecho:
   admin-display-name: 平台管理员
   ai-chat-provider: bailian
   ai-audio-retention-count: 32
+  ai-audio-url-ttl-seconds: ${KINECHO_AI_AUDIO_URL_TTL_SECONDS:300}
+  ai-voice-retention-days: ${KINECHO_AI_VOICE_RETENTION_DAYS:7}
+  mental-frame-retention-days: ${KINECHO_MENTAL_FRAME_RETENTION_DAYS:30}
+  ai-chat-retention-days: ${KINECHO_AI_CHAT_RETENTION_DAYS:180}
+  consultation-retention-days: ${KINECHO_CONSULTATION_RETENTION_DAYS:730}
+  audit-log-retention-days: ${KINECHO_AUDIT_LOG_RETENTION_DAYS:365}
 
   redis-enabled: false
   redis-host: 127.0.0.1

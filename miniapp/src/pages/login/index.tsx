@@ -5,6 +5,7 @@ import { API_BASE_URL, API_BASE_URLS } from '@/config/runtime';
 import {
   openWechatSession,
   queryWechatIdentity,
+  recordLoginConsent,
   type WechatIdentityStatus,
   type WechatProfile,
 } from '@/services/auth';
@@ -13,6 +14,7 @@ import { clearServiceSession, saveServiceSession } from '@/utils/serviceSession'
 import { clearElderlySession, saveElderlySession } from '@/utils/session';
 
 type RoleKey = 'elderly' | 'family' | 'service';
+const LOGIN_CONSENT_VERSION = 'pilot-v1';
 
 interface LoginRoleConfig {
   title: string;
@@ -63,6 +65,7 @@ function saveVerifiedSession(role: RoleKey, identity: WechatIdentityStatus, fall
       elderlyId: elderly.user_id,
       elderName: elderly.name || elderly.display_name || fallbackName,
       wechatOpenid: identity.openid,
+      sessionToken: elderly.session_token,
     });
     return;
   }
@@ -76,6 +79,7 @@ function saveVerifiedSession(role: RoleKey, identity: WechatIdentityStatus, fall
       elderlyId: family.elderly_id,
       elderlyName: family.elderly_name,
       wechatOpenid: identity.openid,
+      sessionToken: family.session_token,
     });
     return;
   }
@@ -86,8 +90,62 @@ function saveVerifiedSession(role: RoleKey, identity: WechatIdentityStatus, fall
     familyId: service.family_id,
     displayName: service.display_name || fallbackName,
     wechatOpenid: identity.openid,
+    sessionToken: service.session_token,
     certificationStatus: service.status,
   });
+}
+
+async function recordVerifiedLoginConsents(role: RoleKey, identity: WechatIdentityStatus, fallbackName: string) {
+  const baseMetadata = {
+    role,
+    agreement_pages: ['/pages/legal/user-agreement/index', '/pages/legal/privacy-policy/index'],
+  };
+
+  const payload =
+    role === 'elderly'
+      ? {
+          family_id: identity.elderly.family_id || '',
+          elderly_id: identity.elderly.user_id,
+          user_id: identity.elderly.user_id,
+          actor_role: role,
+          actor_name: identity.elderly.name || identity.elderly.display_name || fallbackName,
+          metadata: baseMetadata,
+        }
+      : role === 'family'
+        ? {
+            family_id: identity.family.family_id || '',
+            elderly_id: identity.family.elderly_id,
+            user_id: identity.family.family_user_id || identity.family.user_id,
+            actor_role: role,
+            actor_name: identity.family.name || identity.family.display_name || fallbackName,
+            metadata: baseMetadata,
+          }
+        : {
+            family_id: identity.service.family_id || '',
+            actor_role: role,
+            actor_name: identity.service.display_name || identity.service.username || fallbackName,
+            metadata: {
+              ...baseMetadata,
+              certification_status: identity.service.status,
+            },
+          };
+
+  if (!payload.family_id) {
+    throw new Error('缺少家庭信息，无法记录协议同意');
+  }
+
+  await Promise.all([
+    recordLoginConsent({
+      ...payload,
+      consent_type: 'user-agreement',
+      version: LOGIN_CONSENT_VERSION,
+    }),
+    recordLoginConsent({
+      ...payload,
+      consent_type: 'privacy-policy',
+      version: LOGIN_CONSENT_VERSION,
+    }),
+  ]);
 }
 
 function savePendingEntrance(role: RoleKey, identity: WechatIdentityStatus, fallbackName: string) {
@@ -122,6 +180,12 @@ async function routeAfterIdentity(role: RoleKey, identity: WechatIdentityStatus,
   if (role === 'elderly') {
     if (identity.elderly.has_role) {
       saveVerifiedSession(role, identity, fallbackName);
+      try {
+        await recordVerifiedLoginConsents(role, identity, fallbackName);
+      } catch (error) {
+        clearRoleSessions();
+        throw error;
+      }
       await Taro.redirectTo({ url: '/pages/elderly/home/index' });
       return;
     }
@@ -134,6 +198,12 @@ async function routeAfterIdentity(role: RoleKey, identity: WechatIdentityStatus,
   if (role === 'family') {
     if (identity.family.has_role && identity.family.bound_elderly) {
       saveVerifiedSession(role, identity, fallbackName);
+      try {
+        await recordVerifiedLoginConsents(role, identity, fallbackName);
+      } catch (error) {
+        clearRoleSessions();
+        throw error;
+      }
       await Taro.redirectTo({ url: '/pages/family/dashboard/index' });
       return;
     }
@@ -145,6 +215,12 @@ async function routeAfterIdentity(role: RoleKey, identity: WechatIdentityStatus,
 
   if (identity.service.certified && identity.service.status === 'approved') {
     saveVerifiedSession(role, identity, fallbackName);
+    try {
+      await recordVerifiedLoginConsents(role, identity, fallbackName);
+    } catch (error) {
+      clearRoleSessions();
+      throw error;
+    }
     await Taro.redirectTo({ url: '/pages/service/workspace/index' });
     return;
   }
@@ -222,12 +298,8 @@ export default function LoginPage() {
     }
   };
 
-  const showPolicy = (title: string) => {
-    Taro.showModal({
-      title,
-      content: '我们会按照微信小程序规范，仅在登录和服务履约所需范围内使用您的授权信息。',
-      showCancel: false,
-    });
+  const openLegalPage = (url: string) => {
+    Taro.navigateTo({ url });
   };
 
   return (
@@ -273,7 +345,7 @@ export default function LoginPage() {
                 className='login-policy-link'
                 onClick={(event) => {
                   event.stopPropagation();
-                  showPolicy('用户协议');
+                  openLegalPage('/pages/legal/user-agreement/index');
                 }}
               >
                 《用户协议》
@@ -283,7 +355,7 @@ export default function LoginPage() {
                 className='login-policy-link'
                 onClick={(event) => {
                   event.stopPropagation();
-                  showPolicy('隐私政策');
+                  openLegalPage('/pages/legal/privacy-policy/index');
                 }}
               >
                 《隐私政策》

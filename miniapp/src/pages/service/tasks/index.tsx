@@ -11,6 +11,11 @@ import {
 import { formatDateTimeText } from '@/utils/format';
 
 const tabs = ['待处理', '处理中', '已完成'];
+const completionTemplates = [
+  '已联系老人确认安全，并同步家属关注。',
+  '已联系家属确认情况，安排后续随访。',
+  '已完成现场/电话核实，当前风险暂缓。',
+];
 
 function getPriorityChip(priority: ServiceTask['priority']) {
   if (priority === 'high') return 'service-chip--red';
@@ -48,7 +53,16 @@ export default function ServiceTasksPage() {
         await startServiceTask(item.alertId);
         Taro.showToast({ title: '已接单', icon: 'success' });
       } else if (item.status === 'processing') {
-        await completeServiceTask(item.alertId);
+        let replyMessage = completionTemplates[0];
+        try {
+          const selected = await Taro.showActionSheet({
+            itemList: completionTemplates,
+          });
+          replyMessage = completionTemplates[selected.tapIndex] || completionTemplates[0];
+        } catch {
+          return;
+        }
+        await completeServiceTask(item.alertId, replyMessage);
         Taro.showToast({ title: '已完成处理', icon: 'success' });
       }
       await loadData();
@@ -82,11 +96,18 @@ export default function ServiceTasksPage() {
           visibleTasks.map((item) => (
             <View className={`service-ticket ${item.priority === 'high' ? 'service-ticket--high' : ''}`} key={item.id}>
               <View className='service-chip-row'>
-                <Text className={`service-chip ${getPriorityChip(item.priority)}`}>{item.typeLabel}</Text>
-                <Text className='service-ticket__name'>{item.elderlyName}</Text>
-              </View>
-              <Text className='service-card-text'>{item.reason}</Text>
-              <Text className='service-card-meta'>{formatDateTimeText(item.createdAt)}</Text>
+              <Text className={`service-chip ${getPriorityChip(item.priority)}`}>{item.typeLabel}</Text>
+              <Text className='service-ticket__name'>{item.elderlyName}</Text>
+            </View>
+            <Text className='service-card-text'>{item.reason}</Text>
+            <Text className='service-card-meta'>
+              {formatDateTimeText(item.createdAt)}
+              {item.slaDeadlineAt ? ` · SLA ${formatDateTimeText(item.slaDeadlineAt)}` : ''}
+              {item.overdue ? ' · 已超时' : item.remainingMinutes > 0 ? ` · 剩余 ${item.remainingMinutes} 分钟` : ''}
+            </Text>
+            {item.escalationHint ? (
+              <Text className={`service-card-meta ${item.overdue ? 'service-card-meta--danger' : ''}`}>{item.escalationHint}</Text>
+            ) : null}
               <View className='service-button-row'>
                 {item.status !== 'completed' ? (
                   <Button className='service-button service-button--primary' onClick={() => void progressTask(item)}>

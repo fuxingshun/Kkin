@@ -6,12 +6,17 @@ import com.kinecho.server.mapper.KinEchoMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
@@ -54,6 +59,323 @@ class KinEchoApiServiceRulesTest {
         properties.setZoneId("Asia/Shanghai");
         db = spy(new KinEchoMapper(jdbc, properties, new ObjectMapper()));
         service = new KinEchoApiService(db, properties, aiCompanion, toastService, new ObjectMapper());
+    }
+
+    @Test
+    void getServiceCertificationsFiltersPendingApplications() {
+        doReturn(List.of(
+            db.map(
+                "id", 9L,
+                "wechat_openid", "openid-service",
+                "name", "service staff",
+                "phone", "13900000000",
+                "staff_no", "S001",
+                "organization", "pilot center",
+                "status", "pending"
+            )
+        )).when(db).list(
+            contains("FROM service_certifications"),
+            eq("pending"),
+            eq(50)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.getServiceCertifications("pending", 50);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("pending", response.getBody().get("status"));
+        List<?> rows = (List<?>) response.getBody().get("certifications");
+        assertEquals(1, rows.size());
+        assertEquals(9L, ((Number) ((Map<?, ?>) rows.get(0)).get("id")).longValue());
+    }
+
+    @Test
+    void reviewServiceCertificationApprovesApplication() {
+        doReturn(1).when(db).update(
+            contains("UPDATE service_certifications"),
+            eq("approved"),
+            eq("admin"),
+            eq(""),
+            eq(9L)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.reviewServiceCertification(9L, Map.of(
+            "status", "approved",
+            "reviewer", "admin"
+        ));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(true, response.getBody().get("success"));
+        assertEquals("approved", response.getBody().get("status"));
+    }
+
+    @Test
+    void reviewServiceCertificationRejectRequiresReason() {
+        ResponseEntity<Map<String, Object>> response = service.reviewServiceCertification(9L, Map.of(
+            "status", "rejected",
+            "reviewer", "admin"
+        ));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        verify(db, never()).update(
+            contains("UPDATE service_certifications"),
+            any(),
+            any(),
+            any(),
+            any()
+        );
+    }
+
+    @Test
+    void createAdminPsychologyVideoRequiresSlugTitleAndSource() {
+        ResponseEntity<Map<String, Object>> response = service.createAdminPsychologyVideo(Map.of(
+            "title", "breathing"
+        ));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("psychology video requires slug, title and source_url", response.getBody().get("error"));
+        verify(db, never()).insert(
+            contains("INSERT INTO psychology_videos"),
+            any(),
+            any(),
+            any()
+        );
+    }
+
+    @Test
+    void createAdminPsychologyQuestionPersistsQuestion() {
+        doReturn(31L).when(db).insert(
+            contains("INSERT INTO psychology_questions"),
+            eq("如何缓解睡前焦虑？"),
+            eq(7),
+            eq(1)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.createAdminPsychologyQuestion(Map.of(
+            "question", "如何缓解睡前焦虑？",
+            "sort_order", 7
+        ));
+
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        assertEquals(31L, ((Number) response.getBody().get("question_id")).longValue());
+    }
+
+    @Test
+    void updateAdminPsychologyQuestionCanDeactivateQuestion() {
+        doReturn(1).when(db).update(
+            contains("UPDATE psychology_questions SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"),
+            eq(0),
+            eq(12L)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.updateAdminPsychologyQuestion(12L, Map.of(
+            "is_active", 0
+        ));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(12L, ((Number) response.getBody().get("question_id")).longValue());
+    }
+
+    @Test
+    void getConsultationsAddsFamilyVisibleSummaryAndActions() {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", 21L);
+        row.put("family_id", "family_001");
+        row.put("elderly_id", 7L);
+        row.put("consultation_type", "phone");
+        row.put("scheduled_time", "2026-05-06 10:00:00");
+        row.put("status", "scheduled");
+        row.put("note", "睡眠压力");
+        row.put("counselor_name", "李老师");
+        doReturn(List.of(row)).when(db).list(
+            contains("FROM consultations c"),
+            eq("family_001"),
+            eq(20)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.getConsultations(Map.of("family_id", "family_001"));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        List<?> rows = (List<?>) response.getBody().get("consultations");
+        Map<?, ?> consultation = (Map<?, ?>) rows.get(0);
+        assertEquals("已预约", consultation.get("status_label"));
+        assertEquals(true, consultation.get("can_reschedule"));
+        assertEquals(true, consultation.get("can_cancel"));
+        assertTrue(consultation.get("family_visible_summary").toString().contains("李老师"));
+        assertTrue(consultation.get("next_action").toString().contains("改约或取消"));
+    }
+
+    @Test
+    void updateConsultationRejectsReschedulingCompletedAppointment() {
+        doReturn(Optional.of(Map.of(
+            "id", 21L,
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "status", "completed",
+            "scheduled_time", "2026-05-06 10:00:00",
+            "note", "done"
+        ))).when(db).one(
+            contains("FROM consultations"),
+            eq(21L),
+            eq("family_001")
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.updateConsultation(21L, Map.of(
+            "family_id", "family_001",
+            "scheduled_time", "2026-05-07 10:00:00"
+        ));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        verify(db, never()).update(
+            contains("UPDATE consultations"),
+            any(),
+            any(),
+            any()
+        );
+    }
+
+    @Test
+    void updateConsultationRequiresCancellationReason() {
+        doReturn(Optional.of(Map.of(
+            "id", 21L,
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "status", "scheduled",
+            "scheduled_time", "2026-05-06 10:00:00",
+            "note", ""
+        ))).when(db).one(
+            contains("FROM consultations"),
+            eq(21L),
+            eq("family_001")
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.updateConsultation(21L, Map.of(
+            "family_id", "family_001",
+            "status", "cancelled"
+        ));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        verify(db, never()).update(
+            contains("UPDATE consultations"),
+            any(),
+            any(),
+            any()
+        );
+    }
+
+    @Test
+    void getCounselorsAddsAvailabilitySummary() {
+        doReturn(List.of(db.map(
+            "id", 88L,
+            "name", "slot counselor",
+            "title", "counselor",
+            "available", 1,
+            "calendar", db.map(
+                "month", "2026年5月",
+                "dates", List.of(
+                    db.map("day", 7, "available", 2),
+                    db.map("day", 8, "status", "full")
+                )
+            )
+        ))).when(db).list(contains("FROM counselors"));
+
+        ResponseEntity<Map<String, Object>> response = service.getCounselors();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        List<?> rows = (List<?>) response.getBody().get("counselors");
+        Map<?, ?> counselor = (Map<?, ?>) rows.get(0);
+        assertEquals(2, counselor.get("available_slot_count"));
+        assertTrue(counselor.get("next_available_text").toString().contains("2026年5月7日"));
+    }
+
+    @Test
+    void updateAdminCounselorTogglesAvailability() {
+        doReturn(1).when(db).update(
+            contains("UPDATE counselors SET"),
+            eq(0),
+            eq("paused"),
+            eq(88L)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.updateAdminCounselor(88L, Map.of(
+            "available", 0,
+            "availability_text", "paused"
+        ));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(88L, ((Number) response.getBody().get("counselor_id")).longValue());
+    }
+
+    @Test
+    void createConsultationRejectsUnavailableCounselor() {
+        doReturn(Optional.of(Map.of(
+            "id", 88L,
+            "name", "off duty",
+            "available", 0,
+            "is_active", 1
+        ))).when(db).one(
+            contains("FROM counselors"),
+            eq(88L)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.createConsultation(Map.of(
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "counselor_id", 88L,
+            "scheduled_time", "2026-05-07 19:00:00"
+        ));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("counselor is not available", response.getBody().get("error"));
+        verify(db, never()).insert(
+            contains("INSERT INTO consultations"),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()
+        );
+    }
+
+    @Test
+    void createConsultationRejectsAlreadyBookedCounselorSlot() {
+        doReturn(Optional.of(Map.of(
+            "id", 88L,
+            "name", "available counselor",
+            "available", 1,
+            "is_active", 1
+        ))).when(db).one(
+            contains("FROM counselors"),
+            eq(88L)
+        );
+        doReturn(1L).when(db).count(
+            contains("FROM consultations"),
+            eq(88L),
+            eq("2026-05-07 19:00:00")
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.createConsultation(Map.of(
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "counselor_id", 88L,
+            "scheduled_time", "2026-05-07 19:00:00"
+        ));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("counselor slot is already booked", response.getBody().get("error"));
+        verify(db, never()).insert(
+            contains("INSERT INTO consultations"),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+            any()
+        );
     }
 
     @Test
@@ -137,6 +459,7 @@ class KinEchoApiServiceRulesTest {
             eq(""),
             eq("family_001"),
             any(),
+            eq(""),
             eq("admin"),
             eq("admin")
         );
@@ -157,9 +480,71 @@ class KinEchoApiServiceRulesTest {
             eq(""),
             eq("family_001"),
             any(),
+            eq(""),
             eq("admin"),
             eq("admin")
         );
+    }
+
+    @Test
+    void loginReturnsSessionTokenAndMeReadsCurrentUser() {
+        doReturn(Optional.of(Map.of(
+            "id", 7L,
+            "user_type", "elderly",
+            "name", "elderly user",
+            "phone", "13900001234",
+            "family_id", "family_001",
+            "binding_code", "AB12CD34"
+        ))).when(db).one(contains("WHERE user_type = ? AND is_active = 1"), eq("elderly"), eq("elderly user"), eq("elderly user"));
+
+        ResponseEntity<Map<String, Object>> login = service.login(Map.of(
+            "role", "elderly",
+            "username", "elderly user",
+            "password", "001234"
+        ));
+
+        assertEquals(HttpStatus.OK, login.getStatusCode());
+        String token = String.valueOf(login.getBody().get("session_token"));
+        assertFalse(token.isBlank());
+
+        ResponseEntity<Map<String, Object>> me = service.me(token, null);
+
+        assertEquals(HttpStatus.OK, me.getStatusCode());
+        assertEquals("elderly", me.getBody().get("role"));
+        assertEquals("family_001", me.getBody().get("family_id"));
+        assertEquals(7L, ((Number) me.getBody().get("elderly_id")).longValue());
+        Map<?, ?> user = (Map<?, ?>) me.getBody().get("user");
+        assertEquals("elderly user", user.get("display_name"));
+        assertEquals(7L, ((Number) user.get("user_id")).longValue());
+    }
+
+    @Test
+    void meRejectsInvalidSessionToken() {
+        ResponseEntity<Map<String, Object>> response = service.me("not-a-valid-token", null);
+
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
+    }
+
+    @Test
+    void getAdminFamiliesReturnsFamilyOptionsWithCounts() {
+        doReturn(List.of(
+            db.map(
+                "family_id", "family_001",
+                "total_users", 3L,
+                "elderly_count", 1L,
+                "family_count", 2L,
+                "open_alerts", 1L
+            )
+        )).when(db).list(contains("FROM users u"));
+
+        ResponseEntity<Map<String, Object>> response = service.getAdminFamilies();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        List<?> families = (List<?>) response.getBody().get("families");
+        assertEquals(1, families.size());
+        Map<?, ?> family = (Map<?, ?>) families.get(0);
+        assertEquals("family_001", family.get("family_id"));
+        assertEquals(3L, ((Number) family.get("total_users")).longValue());
     }
 
     @Test
@@ -207,6 +592,7 @@ class KinEchoApiServiceRulesTest {
             eq("daughter"),
             eq("13900000000"),
             eq("family_001"),
+            eq(""),
             eq("family-bind"),
             eq("family-bind")
         );
@@ -247,9 +633,10 @@ class KinEchoApiServiceRulesTest {
         assertEquals(9L, ((Number) response.getBody().get("user_id")).longValue());
         assertTrue(response.getBody().containsKey("binding_code"));
         verify(db).update(
-            contains("SET name = ?, phone = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP"),
+            contains("SET name = ?, phone = ?, wechat_openid = COALESCE(NULLIF(?, ''), wechat_openid),"),
             eq("daughter"),
             eq("13900000000"),
+            eq(""),
             eq("family-bind"),
             eq(9L)
         );
@@ -281,6 +668,32 @@ class KinEchoApiServiceRulesTest {
         assertEquals("elderly", response.getBody().get("role"));
         assertEquals(5L, ((Number) response.getBody().get("elderly_id")).longValue());
         assertEquals("family_001", response.getBody().get("family_id"));
+    }
+
+    @Test
+    void loginRejectsPhoneSuffixPasswordWhenDisabled() {
+        properties.phoneSuffixLoginEnabled = false;
+        doReturn(Optional.of(Map.of(
+            "id", 5L,
+            "user_type", "elderly",
+            "name", "elderly account",
+            "phone", "13800138000",
+            "family_id", "family_001",
+            "binding_code", "AB12CD34"
+        ))).when(db).one(
+            contains("WHERE user_type = ? AND is_active = 1 AND (name = ? OR phone = ?)"),
+            eq("elderly"),
+            eq("13800138000"),
+            eq("13800138000")
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.login(Map.of(
+            "role", "elderly",
+            "username", "13800138000",
+            "password", "138000"
+        ));
+
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
     }
 
     @Test
@@ -426,6 +839,302 @@ class KinEchoApiServiceRulesTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("old album", response.getBody().get("title"));
         assertEquals(List.of("family", "travel"), response.getBody().get("tags"));
+        assertEquals("/api/family/media/12/file?family_id=family_001", response.getBody().get("file_path"));
+        assertEquals("/api/family/media/12/thumbnail?family_id=family_001", response.getBody().get("thumbnail_path"));
+    }
+
+    @Test
+    void downloadMediaAssetServesFamilyScopedUploadFile(@TempDir Path tempDir) throws Exception {
+        properties.projectRoot = tempDir;
+        properties.uploadDir = tempDir.resolve("server/uploads");
+        Files.createDirectories(properties.uploadDir);
+        Path mediaFile = properties.uploadDir.resolve("demo.jpg");
+        Files.writeString(mediaFile, "image-bytes");
+        doReturn(Optional.of(Map.of(
+            "id", 12L,
+            "family_id", "family_001",
+            "media_type", "photo",
+            "title", "old album",
+            "file_path", mediaFile.toString(),
+            "thumbnail_path", ""
+        ))).when(db).one(
+            contains("SELECT id, family_id, media_type, title, file_path, thumbnail_path"),
+            eq(12L),
+            eq("family_001")
+        );
+
+        ResponseEntity<?> response = service.downloadMediaAsset(12L, "family_001", false);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody() instanceof FileSystemResource);
+        assertEquals("private, max-age=300", response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
+    }
+
+    @Test
+    void downloadMediaAssetRejectsPathsOutsideUploadDir(@TempDir Path tempDir) throws Exception {
+        properties.projectRoot = tempDir;
+        properties.uploadDir = tempDir.resolve("server/uploads");
+        Files.createDirectories(properties.uploadDir);
+        Path outsideFile = tempDir.resolve("secret.jpg");
+        Files.writeString(outsideFile, "secret");
+        doReturn(Optional.of(Map.of(
+            "id", 12L,
+            "family_id", "family_001",
+            "media_type", "photo",
+            "title", "old album",
+            "file_path", outsideFile.toString(),
+            "thumbnail_path", ""
+        ))).when(db).one(
+            contains("SELECT id, family_id, media_type, title, file_path, thumbnail_path"),
+            eq(12L),
+            eq("family_001")
+        );
+
+        ResponseEntity<?> response = service.downloadMediaAsset(12L, "family_001", false);
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+    }
+
+    @Test
+    void downloadAiAudioServesOnlySignedTemporaryFile(@TempDir Path tempDir) throws Exception {
+        properties.aiAudioDir = tempDir.resolve("server/uploads/ai-audio");
+        properties.aiAudioUrlTtlSeconds = 120;
+        Files.createDirectories(properties.aiAudioDir);
+        Path audioFile = properties.aiAudioDir.resolve("ai-123.wav");
+        Files.writeString(audioFile, "audio-bytes");
+        String token = SessionTokenCodec.createSignedPayload(
+            Map.of("purpose", "ai_audio", "file", "ai-123.wav"),
+            properties.aiAudioUrlTtlSeconds,
+            properties,
+            new ObjectMapper()
+        );
+
+        ResponseEntity<?> response = service.downloadAiAudio("ai-123.wav", token);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody() instanceof FileSystemResource);
+        assertEquals("private, max-age=120", response.getHeaders().getFirst(HttpHeaders.CACHE_CONTROL));
+    }
+
+    @Test
+    void downloadAiAudioRejectsInvalidToken(@TempDir Path tempDir) throws Exception {
+        properties.aiAudioDir = tempDir.resolve("server/uploads/ai-audio");
+        Files.createDirectories(properties.aiAudioDir);
+        Files.writeString(properties.aiAudioDir.resolve("ai-123.wav"), "audio-bytes");
+
+        ResponseEntity<?> response = service.downloadAiAudio("ai-123.wav", "invalid-token");
+
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+    }
+
+    @Test
+    void aiChatEscalatesCrisisSignalToFamilyAlert() {
+        doReturn(77L).when(db).insert(
+            contains("INSERT INTO family_alerts"),
+            eq("family_001"),
+            eq(7L),
+            eq("ai_crisis"),
+            eq("high"),
+            eq("AI crisis alert"),
+            any(),
+            any(),
+            eq("ai_companion")
+        );
+        doReturn(88L).when(db).insert(
+            contains("INSERT INTO care_audit_logs"),
+            eq("family_001"),
+            eq(7L),
+            eq("ai"),
+            eq("AI companion"),
+            eq("ai_crisis_detected"),
+            any(),
+            any()
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.aiChat(Map.of(
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "user", "elderly:family_001:7",
+            "message", "I want to die"
+        ), new HttpHeaders());
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(true, response.getBody().get("crisis_detected"));
+        assertEquals(77L, ((Number) response.getBody().get("alert_id")).longValue());
+        assertTrue(response.getBody().get("reply").toString().contains("Contact family"));
+        assertEquals("safety", response.getBody().get("chat_provider"));
+        verify(aiCompanion, never()).chat(any(), any(), any());
+    }
+
+    @Test
+    void recordConsentPersistsConsentAndAuditsIt() {
+        doReturn(42L).when(db).insert(
+            contains("INSERT INTO consent_records"),
+            eq("family_001"),
+            eq(7L),
+            any(),
+            eq("privacy-policy"),
+            eq("v1"),
+            eq(1),
+            eq("family"),
+            eq("daughter"),
+            eq("miniapp"),
+            any()
+        );
+        doReturn(88L).when(db).insert(
+            contains("INSERT INTO care_audit_logs"),
+            eq("family_001"),
+            eq(7L),
+            eq("family"),
+            eq("daughter"),
+            eq("consent_recorded"),
+            any(),
+            any()
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.recordConsent(Map.of(
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "consent_type", "privacy-policy",
+            "version", "v1",
+            "accepted", true,
+            "actor_role", "family",
+            "actor_name", "daughter"
+        ));
+
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        assertEquals(42L, ((Number) response.getBody().get("consent_id")).longValue());
+    }
+
+    @Test
+    void exportFamilyDataBuildsFamilyScopedPackage() {
+        doReturn(List.of()).when(db).list(any(), eq("family_001"));
+
+        ResponseEntity<Map<String, Object>> response = service.exportFamilyData("family_001");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("family_001", response.getBody().get("family_id"));
+        Map<?, ?> data = (Map<?, ?>) response.getBody().get("data");
+        assertTrue(data.containsKey("users"));
+        assertTrue(data.containsKey("consent_records"));
+        assertTrue(data.containsKey("privacy_requests"));
+        assertTrue(data.containsKey("care_audit_logs"));
+    }
+
+    @Test
+    void createPrivacyRequestCreatesPendingRequestAndAudit() {
+        doReturn(51L).when(db).insert(
+            contains("INSERT INTO privacy_requests"),
+            eq("family_001"),
+            eq(7L),
+            eq("delete"),
+            eq("daughter"),
+            eq("pilot exit"),
+            any()
+        );
+        doReturn(88L).when(db).insert(
+            contains("INSERT INTO care_audit_logs"),
+            eq("family_001"),
+            eq(7L),
+            eq("family"),
+            eq("daughter"),
+            eq("privacy_request_created"),
+            any(),
+            any()
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.createPrivacyRequest(Map.of(
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "request_type", "delete",
+            "requested_by", "daughter",
+            "reason", "pilot exit"
+        ));
+
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        assertEquals(51L, ((Number) response.getBody().get("request_id")).longValue());
+        assertEquals("pending", response.getBody().get("status"));
+    }
+
+    @Test
+    void getPrivacyRequestsFiltersByFamilyAndStatus() {
+        List<Map<String, Object>> requests = List.of(Map.of(
+            "id", 51L,
+            "family_id", "family_001",
+            "request_type", "delete",
+            "status", "pending"
+        ));
+        doReturn(requests).when(db).list(
+            contains("WHERE family_id = ? AND status = ?"),
+            eq("family_001"),
+            eq("pending"),
+            eq(100)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.getPrivacyRequests("family_001", "pending", 100);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(1, response.getBody().get("total"));
+        assertEquals(requests, response.getBody().get("requests"));
+    }
+
+    @Test
+    void reviewPrivacyRequestUpdatesStatusAndAudits() {
+        doReturn(Optional.of(Map.of(
+            "id", 51L,
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "request_type", "delete",
+            "status", "pending"
+        ))).when(db).one(contains("FROM privacy_requests"), eq(51L));
+        doReturn(1).when(db).update(
+            contains("UPDATE privacy_requests"),
+            eq("completed"),
+            eq("admin"),
+            eq("done"),
+            eq(51L)
+        );
+        doReturn(88L).when(db).insert(
+            contains("INSERT INTO care_audit_logs"),
+            eq("family_001"),
+            eq(7L),
+            eq("admin"),
+            eq("admin"),
+            eq("privacy_request_reviewed"),
+            any(),
+            any()
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.reviewPrivacyRequest(51L, Map.of(
+            "status", "completed",
+            "reviewer", "admin",
+            "process_note", "done"
+        ));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(51L, ((Number) response.getBody().get("request_id")).longValue());
+        assertEquals("completed", response.getBody().get("status"));
+    }
+
+    @Test
+    void retentionSummaryExposesConfiguredPilotPolicy() {
+        properties.aiAudioRetentionCount = 24;
+        properties.aiVoiceRetentionDays = 9;
+        properties.mentalFrameRetentionDays = 31;
+        properties.aiChatRetentionDays = 120;
+        properties.consultationRetentionDays = 720;
+        properties.auditLogRetentionDays = 366;
+
+        ResponseEntity<Map<String, Object>> response = service.retentionSummary();
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        Map<?, ?> policy = (Map<?, ?>) response.getBody().get("policy");
+        assertEquals(24, policy.get("ai_audio_retention_count"));
+        assertEquals(9, policy.get("ai_voice_retention_days"));
+        assertEquals(31, policy.get("mental_frame_retention_days"));
+        assertEquals(120, policy.get("ai_chat_retention_days"));
+        assertEquals(720, policy.get("consultation_retention_days"));
+        assertEquals(366, policy.get("audit_log_retention_days"));
     }
 
     @Test
@@ -436,6 +1145,63 @@ class KinEchoApiServiceRulesTest {
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("missing family_id", response.getBody().get("error"));
+    }
+
+    @Test
+    void getServiceFollowupsAddsSharedConsultationSummary() {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", 15L);
+        row.put("elderly_id", 7L);
+        row.put("elderly_name", "王阿姨");
+        row.put("consultation_type", "phone");
+        row.put("scheduled_time", "2026-05-06 10:00:00");
+        row.put("status", "scheduled");
+        row.put("note", "睡眠回访");
+        doReturn(List.of(row)).when(db).list(
+            contains("FROM consultations c"),
+            eq("family_001"),
+            eq(30)
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.getServiceFollowups(Map.of("family_id", "family_001"));
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        List<?> rows = (List<?>) response.getBody().get("followups");
+        Map<?, ?> followup = (Map<?, ?>) rows.get(0);
+        assertEquals("已预约", followup.get("status_label"));
+        assertEquals(true, followup.get("can_reschedule"));
+        assertTrue(followup.get("family_visible_summary").toString().contains("睡眠回访"));
+        assertTrue(followup.get("next_action").toString().contains("改约或取消"));
+    }
+
+    @Test
+    void updateServiceFollowupStatusRejectsTerminalTransition() {
+        doReturn(Optional.of(Map.of(
+            "id", 15L,
+            "family_id", "family_001",
+            "elderly_id", 7L,
+            "status", "completed",
+            "scheduled_time", "2026-05-06 10:00:00",
+            "note", "done"
+        ))).when(db).one(
+            contains("FROM consultations"),
+            eq(15L),
+            eq("family_001")
+        );
+
+        ResponseEntity<Map<String, Object>> response = service.updateServiceFollowupStatus(15L, Map.of(
+            "family_id", "family_001",
+            "status", "in_progress"
+        ));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("completed or cancelled consultations cannot be changed", response.getBody().get("error"));
+        verify(db, never()).update(
+            contains("UPDATE consultations"),
+            any(),
+            any(),
+            any()
+        );
     }
 
     @Test

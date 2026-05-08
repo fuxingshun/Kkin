@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Button, Image, Text, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
-import { DEFAULT_FAMILY_ID } from '@/config/runtime';
 import { memoryCategoryOptions } from '@/constants/mediaCategories';
 import {
   getFamilyMedia,
@@ -12,6 +11,7 @@ import {
   uploadMedia,
   type Media,
 } from '@/services/family';
+import { getFamilySession, requireCurrentFamilyId } from '@/utils/familySession';
 
 const tabs = [
   { key: 'all', label: '全部' },
@@ -26,6 +26,7 @@ export default function FamilyMediaPage() {
   const [uploading, setUploading] = useState(false);
   const [mediaList, setMediaList] = useState<Media[]>([]);
   const [activeTab, setActiveTab] = useState<MediaTab>('all');
+  const familySession = useMemo(() => getFamilySession(), []);
 
   const loadData = useCallback(async () => {
     try {
@@ -84,9 +85,10 @@ export default function FamilyMediaPage() {
       const selectedCategory = memoryCategoryOptions[categoryChooser.tapIndex];
 
       setUploading(true);
+      const familyId = requireCurrentFamilyId(familySession);
       const uploadResult = await uploadMedia({
         filePath: target.tempFilePath,
-        family_id: DEFAULT_FAMILY_ID,
+        family_id: familyId,
         title: inputValue || fallbackTitle,
       });
       if (uploadResult.media_id && selectedCategory) {

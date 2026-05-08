@@ -6910,6 +6910,61 @@ page {
   background: #5b6fd8;
 }
 
+.ef-core-actions {
+  margin: -34rpx 32rpx 28rpx;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18rpx;
+  position: relative;
+  z-index: 2;
+}
+
+.ef-core-action {
+  min-height: 136rpx;
+  padding: 24rpx;
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  border-radius: 20rpx;
+  background: #ffffff;
+  box-shadow: 0 14rpx 34rpx rgba(17, 24, 39, 0.1);
+}
+
+.ef-core-action--blue { border-left: 8rpx solid #3b82f6; }
+.ef-core-action--green { border-left: 8rpx solid #10b981; }
+.ef-core-action--amber { border-left: 8rpx solid #f59e0b; }
+.ef-core-action--pink { border-left: 8rpx solid #ec4899; }
+
+.ef-core-action__icon {
+  width: 88rpx;
+  height: 88rpx;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24rpx;
+  background: #f3f6ff;
+}
+
+.ef-core-action__label,
+.ef-core-action__hint {
+  display: block;
+}
+
+.ef-core-action__label {
+  color: #111827;
+  font-size: 34rpx;
+  line-height: 1.25;
+  font-weight: 900;
+}
+
+.ef-core-action__hint {
+  margin-top: 6rpx;
+  color: #6b7280;
+  font-size: 25rpx;
+  line-height: 1.35;
+}
+
 .ef-record-hero {
   padding-top: calc(env(safe-area-inset-top) + 80rpx);
   background: linear-gradient(135deg, #0ea5a5 0%, #0c8a8a 100%);
@@ -8712,6 +8767,10 @@ page {
   font-size: 23rpx;
   line-height: 1.35;
   font-weight: 700;
+}
+
+.service-card-meta--danger {
+  color: #dc2626;
 }
 
 .service-link {

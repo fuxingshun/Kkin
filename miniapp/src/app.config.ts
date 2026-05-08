@@ -2,6 +2,8 @@ export default defineAppConfig({
   pages: [
     'pages/role/index',
     'pages/login/index',
+    'pages/legal/user-agreement/index',
+    'pages/legal/privacy-policy/index',
   ],
   subPackages: [
     {

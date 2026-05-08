@@ -15,6 +15,8 @@ export interface LoginResult {
   elderly_name?: string;
   family_user_id?: number;
   family_name?: string;
+  session_token?: string;
+  session_expires_in?: number;
 }
 
 export async function login(role: AuthRole, username: string, password: string) {
@@ -70,6 +72,8 @@ export interface WechatIdentityUser {
   elderly_name?: string;
   bound_elderly?: boolean;
   binding_code?: string;
+  session_token?: string;
+  session_expires_in?: number;
 }
 
 export interface WechatServiceIdentity {
@@ -83,6 +87,8 @@ export interface WechatServiceIdentity {
   staff_no?: string;
   phone?: string;
   reason?: string;
+  session_token?: string;
+  session_expires_in?: number;
 }
 
 export interface WechatIdentityStatus {
@@ -113,6 +119,55 @@ export async function openWechatSession(role: EntranceRole, profile?: WechatProf
 
 export async function queryWechatIdentity(openid: string) {
   return request<WechatIdentityStatus>(`/auth/wechat-identity?openid=${encodeURIComponent(openid)}`);
+}
+
+export interface CurrentSession {
+  success: boolean;
+  role: AuthRole;
+  family_id?: string;
+  elderly_id?: number;
+  elderly_bound: boolean;
+  session_expires_at: number;
+  user: {
+    role: AuthRole;
+    user_id?: number;
+    username?: string;
+    display_name?: string;
+    openid?: string;
+    family_id?: string;
+    elderly_id?: number;
+    elderly_name?: string;
+    family_user_id?: number;
+    family_name?: string;
+  };
+}
+
+export async function getMe(sessionToken: string) {
+  return request<CurrentSession>('/me', {
+    header: {
+      'X-KinEcho-Session': sessionToken.trim(),
+    },
+  });
+}
+
+export async function recordLoginConsent(payload: {
+  family_id: string;
+  elderly_id?: number;
+  user_id?: number;
+  consent_type: 'user-agreement' | 'privacy-policy';
+  version: string;
+  actor_role: EntranceRole;
+  actor_name: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<{ success: boolean; consent_id: number }>('/privacy/consents', {
+    method: 'POST',
+    data: {
+      ...payload,
+      accepted: true,
+      source: 'miniapp-login',
+    },
+  });
 }
 
 export async function submitServiceCertification(payload: {

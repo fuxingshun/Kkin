@@ -15,14 +15,20 @@ export function getMiniappAssetOrigin() {
   return isDevtools() ? DEVTOOLS_LOCAL_ORIGIN : getActiveApiOrigin();
 }
 
-function getFileName(filePath: string) {
-  return filePath.split(/[/\\]/).pop() || filePath;
+function toAssetUrl(path: string) {
+  if (/^https?:\/\//.test(path)) {
+    return path;
+  }
+  if (path.startsWith('/api/')) {
+    return `${getMiniappAssetOrigin()}${path}`;
+  }
+  return '';
 }
 
 export function getUploadMediaUrl(filePath: string) {
-  return `${getMiniappAssetOrigin()}/uploads/${getFileName(filePath)}`;
+  return toAssetUrl(filePath);
 }
 
 export function getUploadThumbnailUrl(thumbnailPath: string) {
-  return `${getMiniappAssetOrigin()}/uploads/thumbnails/${getFileName(thumbnailPath)}`;
+  return toAssetUrl(thumbnailPath);
 }

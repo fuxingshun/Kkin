@@ -18,6 +18,10 @@ public class KinEchoProperties {
     public boolean seedDemoData = false;
     public boolean apiTokenEnabled = false;
     public String apiToken = "";
+    public String sessionSigningKey = "";
+    public long sessionTtlSeconds = 604800;
+    public boolean familyScopeSessionRequired = false;
+    public boolean phoneSuffixLoginEnabled = true;
     public String demoLoginPassword = "";
     public String serviceUsername = "service";
     public String servicePassword = "123456";
@@ -31,6 +35,12 @@ public class KinEchoProperties {
     public String serviceWechatOpenid = "";
     public String aiChatProvider = "bailian";
     public int aiAudioRetentionCount = 32;
+    public int aiAudioUrlTtlSeconds = 300;
+    public int aiVoiceRetentionDays = 7;
+    public int mentalFrameRetentionDays = 30;
+    public int aiChatRetentionDays = 180;
+    public int consultationRetentionDays = 730;
+    public int auditLogRetentionDays = 365;
 
     public String bailianApiKey = "";
     public String bailianApiBaseUrl = "https://dashscope.aliyuncs.com/api/v1";
@@ -81,6 +91,28 @@ public class KinEchoProperties {
 
         aiChatProvider = valueOrDefault(aiChatProvider, "bailian").toLowerCase(Locale.ROOT);
         apiToken = valueOrDefault(apiToken, "");
+        sessionSigningKey = valueOrDefault(sessionSigningKey, "");
+        if (sessionTtlSeconds <= 0) {
+            sessionTtlSeconds = 604800;
+        }
+        if (aiAudioUrlTtlSeconds <= 0) {
+            aiAudioUrlTtlSeconds = 300;
+        }
+        if (aiVoiceRetentionDays <= 0) {
+            aiVoiceRetentionDays = 7;
+        }
+        if (mentalFrameRetentionDays <= 0) {
+            mentalFrameRetentionDays = 30;
+        }
+        if (aiChatRetentionDays <= 0) {
+            aiChatRetentionDays = 180;
+        }
+        if (consultationRetentionDays <= 0) {
+            consultationRetentionDays = 730;
+        }
+        if (auditLogRetentionDays <= 0) {
+            auditLogRetentionDays = 365;
+        }
         demoLoginPassword = valueOrDefault(demoLoginPassword, "");
         serviceUsername = valueOrDefault(serviceUsername, "service");
         servicePassword = valueOrDefault(servicePassword, "123456");
@@ -118,6 +150,22 @@ public class KinEchoProperties {
 
     public void setApiToken(String apiToken) {
         this.apiToken = valueOrDefault(apiToken, "");
+    }
+
+    public void setSessionSigningKey(String sessionSigningKey) {
+        this.sessionSigningKey = valueOrDefault(sessionSigningKey, "");
+    }
+
+    public void setSessionTtlSeconds(long sessionTtlSeconds) {
+        this.sessionTtlSeconds = sessionTtlSeconds;
+    }
+
+    public void setFamilyScopeSessionRequired(boolean familyScopeSessionRequired) {
+        this.familyScopeSessionRequired = familyScopeSessionRequired;
+    }
+
+    public void setPhoneSuffixLoginEnabled(boolean phoneSuffixLoginEnabled) {
+        this.phoneSuffixLoginEnabled = phoneSuffixLoginEnabled;
     }
 
     public void setDemoLoginPassword(String demoLoginPassword) {
@@ -244,6 +292,30 @@ public class KinEchoProperties {
 
     public void setBailianTtsTimeoutSeconds(int bailianTtsTimeoutSeconds) {
         this.bailianTtsTimeoutSeconds = bailianTtsTimeoutSeconds;
+    }
+
+    public void setAiAudioUrlTtlSeconds(int aiAudioUrlTtlSeconds) {
+        this.aiAudioUrlTtlSeconds = aiAudioUrlTtlSeconds;
+    }
+
+    public void setAiVoiceRetentionDays(int aiVoiceRetentionDays) {
+        this.aiVoiceRetentionDays = aiVoiceRetentionDays;
+    }
+
+    public void setMentalFrameRetentionDays(int mentalFrameRetentionDays) {
+        this.mentalFrameRetentionDays = mentalFrameRetentionDays;
+    }
+
+    public void setAiChatRetentionDays(int aiChatRetentionDays) {
+        this.aiChatRetentionDays = aiChatRetentionDays;
+    }
+
+    public void setConsultationRetentionDays(int consultationRetentionDays) {
+        this.consultationRetentionDays = consultationRetentionDays;
+    }
+
+    public void setAuditLogRetentionDays(int auditLogRetentionDays) {
+        this.auditLogRetentionDays = auditLogRetentionDays;
     }
 
     public void setRedisEnabled(boolean redisEnabled) {

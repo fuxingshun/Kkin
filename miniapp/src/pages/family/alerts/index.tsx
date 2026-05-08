@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState } from 'react';
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro';
 import { Text, View } from '@tarojs/components';
 import { BottomNav } from '@/components/BottomNav';
-import { DEFAULT_FAMILY_ID } from '@/config/runtime';
 import {
   alertTypeLabelMap,
   getAlertStats,
@@ -57,8 +56,8 @@ export default function AlertsPage() {
   const loadData = useCallback(async () => {
     try {
       const [alertsResult, alertStats] = await Promise.all([
-        getFamilyAlerts(DEFAULT_FAMILY_ID, { limit: 50 }),
-        getAlertStats(DEFAULT_FAMILY_ID),
+        getFamilyAlerts(undefined, { limit: 50 }),
+        getAlertStats(),
       ]);
 
       setAlerts(alertsResult.alerts || []);

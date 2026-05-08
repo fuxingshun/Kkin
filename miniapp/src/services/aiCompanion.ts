@@ -1,5 +1,6 @@
 import { DEFAULT_CHAT_USERNAME } from '@/config/runtime';
 import { getActiveApiOrigin, request, uploadFile } from '@/utils/request';
+import { getElderlySession } from '@/utils/session';
 
 const AI_CHAT_TIMEOUT = 18000;
 const AI_SPEAK_TIMEOUT = 12000;
@@ -21,12 +22,18 @@ interface AiActionResponse {
 
 export interface AiChatResult extends AiSpeakResult {
   reply: string;
+  crisisDetected?: boolean;
+  alertId?: number;
+  nextStep?: string;
 }
 
 interface AiChatResponse extends AiActionResponse {
   reply?: string;
   chat_provider?: string;
   provider_error?: string;
+  crisis_detected?: boolean;
+  alert_id?: number;
+  next_step?: string;
 }
 
 interface AiVoiceChatResponse extends AiChatResponse {
@@ -63,6 +70,14 @@ function normalizeSpeakResult(data: AiActionResponse): AiSpeakResult {
   };
 }
 
+function currentElderlyContext() {
+  const session = getElderlySession();
+  return {
+    family_id: session.familyId,
+    elderly_id: session.elderlyId,
+  };
+}
+
 export async function speakWithAi(text: string, user = DEFAULT_CHAT_USERNAME): Promise<AiSpeakResult> {
   const data = await request<AiActionResponse>('/elderly/ai/speak', {
     method: 'POST',
@@ -82,6 +97,7 @@ export async function chatWithAi(message: string, user = DEFAULT_CHAT_USERNAME):
     data: {
       user,
       message,
+      ...currentElderlyContext(),
     },
     timeout: AI_CHAT_TIMEOUT,
   });
@@ -91,6 +107,9 @@ export async function chatWithAi(message: string, user = DEFAULT_CHAT_USERNAME):
   return {
     ...speakResult,
     reply: data.reply || '',
+    crisisDetected: data.crisis_detected,
+    alertId: data.alert_id,
+    nextStep: data.next_step,
   };
 }
 
@@ -100,6 +119,7 @@ export async function voiceChatWithAi(filePath: string, user = DEFAULT_CHAT_USER
     name: 'file',
     formData: {
       user,
+      ...currentElderlyContext(),
     },
     timeout: AI_VOICE_CHAT_TIMEOUT,
   });
@@ -112,5 +132,8 @@ export async function voiceChatWithAi(filePath: string, user = DEFAULT_CHAT_USER
     reply: data.reply || '',
     asrProvider: data.asr_provider,
     asrError: data.asr_error,
+    crisisDetected: data.crisis_detected,
+    alertId: data.alert_id,
+    nextStep: data.next_step,
   };
 }

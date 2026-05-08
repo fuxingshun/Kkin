@@ -307,6 +307,26 @@ button {
   color: #111827;
 }
 
+.admin-topbar__family {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-topbar__family select {
+  min-width: 260px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #182235;
+  font: inherit;
+  padding: 10px 12px;
+}
+
 .admin-topbar__profile {
   margin-left: auto;
   display: flex;
@@ -621,6 +641,14 @@ button {
 .admin-list-row b {
   color: #3b82a6;
   font-size: 18px;
+}
+
+.admin-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .admin-rank-row > span {

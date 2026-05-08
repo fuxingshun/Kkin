@@ -44,6 +44,13 @@ function getScheduleIcon(type?: Schedule['schedule_type']): AppIconName {
   return 'bell';
 }
 
+const coreActions: Array<{ label: string; hint: string; icon: AppIconName; url: string; tone: string }> = [
+  { label: '陪我聊', hint: '打开 AI 陪伴', icon: 'message', url: '/pages/elderly/companion/index', tone: 'blue' },
+  { label: '联系家人', hint: '一键求助', icon: 'phone', url: '/pages/elderly/help/index', tone: 'green' },
+  { label: '今日任务', hint: '查看提醒', icon: 'calendar', url: '/pages/elderly/reminders/index', tone: 'amber' },
+  { label: '记录心情', hint: '写下今天', icon: 'heart', url: '/pages/elderly/record/index', tone: 'pink' },
+];
+
 function getGreetingName(users: FamilyUser[]) {
   const elderly = users.find((item) => item.user_type === 'elderly');
   if (!elderly?.name) return '王先生';
@@ -170,6 +177,24 @@ export default function ElderlyHomePage() {
         </View>
       </View>
 
+      <View className='ef-core-actions'>
+        {coreActions.map((item) => (
+          <View
+            className={`ef-core-action ef-core-action--${item.tone}`}
+            key={item.label}
+            onClick={() => Taro.navigateTo({ url: item.url })}
+          >
+            <View className='ef-core-action__icon'>
+              <AppIcon name={item.icon} />
+            </View>
+            <View className='ef-core-action__body'>
+              <Text className='ef-core-action__label'>{item.label}</Text>
+              <Text className='ef-core-action__hint'>{item.hint}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
       <View className={`ef-greeting-card ef-care-insight ef-care-insight--${careInsight?.risk_level || 'low'}`}>
         <View className='ef-round-icon ef-round-icon--green'>
           <AppIcon name='shield' />
@@ -271,13 +296,13 @@ export default function ElderlyHomePage() {
       </View>
 
       <View className='ef-quick-section'>
-        <Text className='ef-section-title'>快捷功能</Text>
+        <Text className='ef-section-title'>更多支持</Text>
         <View className='ef-quick-grid'>
-          <View className='ef-quick-card' onClick={() => Taro.navigateTo({ url: '/pages/elderly/help/index' })}>
+          <View className='ef-quick-card' onClick={() => Taro.navigateTo({ url: '/pages/elderly/counselor-list/index' })}>
             <View className='ef-round-icon ef-round-icon--primary'>
-              <AppIcon name='phone' />
+              <AppIcon name='message' />
             </View>
-            <Text>联系家人</Text>
+            <Text>心理咨询</Text>
           </View>
           <View className='ef-quick-card' onClick={() => Taro.navigateTo({ url: '/pages/elderly/mental-screening/index' })}>
             <View className='ef-round-icon ef-round-icon--warm'>

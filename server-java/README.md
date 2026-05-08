@@ -8,15 +8,15 @@ This is the Java/Spring Boot implementation of the KinEcho backend. It serves th
 - Database: MySQL
 - Backend layers: `controller -> service -> mapper`
 - Mapper framework: MyBatis-Plus
-- Configuration files: `application.yml`, `application-local.yml`, `application-prod.yml`
+- Configuration files: `application.yml`, local `application-local.yml`, and `application-prod.example.yml`
 
 ## Configuration
 
 The backend no longer reads `server-java/.env`. Configure it directly through Spring Boot YAML files:
 
 - `src/main/resources/application.yml`: common settings, MyBatis-Plus settings, shared KinEcho settings
-- `src/main/resources/application-local.yml`: local development settings, loaded by default
-- `src/main/resources/application-prod.yml`: production template
+- `src/main/resources/application-local.yml`: local development settings, loaded by default and ignored by Git
+- `src/main/resources/application-prod.example.yml`: production example that uses environment variable placeholders
 
 The AI companion now uses Alibaba Cloud Bailian for all three AI functions:
 
@@ -43,12 +43,15 @@ kinecho:
   bailian-asr-file-base-url: ''
 ```
 
-Production should enable API token protection:
+For production, copy `application-prod.example.yml` to a local ignored `application-prod.yml` and inject database credentials, passwords, and API keys through environment variables. Production should enable API token protection:
 
 ```yaml
 kinecho:
   api-token-enabled: true
-  api-token: your-long-random-token
+  api-token: ${KINECHO_API_TOKEN}
+  session-signing-key: ${KINECHO_SESSION_SIGNING_KEY}
+  family-scope-session-required: ${KINECHO_FAMILY_SCOPE_SESSION_REQUIRED}
+  phone-suffix-login-enabled: ${KINECHO_PHONE_SUFFIX_LOGIN_ENABLED}
 ```
 
 Clients can send the token through either `Authorization: Bearer ...` or `X-KinEcho-Token`.
@@ -58,11 +61,20 @@ Clients can send the token through either `Authorization: Bearer ...` or `X-KinE
 The backend now exposes:
 
 - `POST /api/auth/login`
+- `GET /api/me`
 - `GET /api/service/overview?family_id=family_001`
 - `GET /api/admin/service-summary?family_id=family_001`
 - `GET /api/admin/analytics?family_id=family_001&months=6&days=7`
 
 `/api/auth/login` supports `elderly`, `family`, `service`, and `admin` roles.
+
+Successful login responses include a signed `session_token`. Send it with `X-KinEcho-Session` to `GET /api/me` to read the current role, user, family, and elderly binding state. This session token is separate from the deployment-wide API token.
+
+Set `KINECHO_FAMILY_SCOPE_SESSION_REQUIRED=true` for pilot or production deployments so family-scoped requests with `family_id` require a valid session and reject cross-family access.
+Set `KINECHO_PHONE_SUFFIX_LOGIN_ENABLED=false` to disable phone-number suffix demo login before a closed pilot.
+Family media uploads are no longer exposed through a broad `/uploads/**` static mapping. API responses return controlled `/api/family/media/{id}/file` and `/thumbnail` URLs. AI TTS playback audio now uses short-lived `/api/ai/audio/{filename}?token=...` signed URLs; ASR voice upload temporary files still use the dedicated `/uploads/ai-voice/**` path so the Bailian transcription service can fetch them.
+When AI companion text or voice transcripts contain high-risk self-harm keywords, the API skips normal chat, creates a high-priority `ai_crisis` family alert, writes a care audit entry, and returns `crisis_detected` with a safety response for the mini program.
+Privacy compliance now has `consent_records` and `privacy_requests`: clients can record policy/screening consent, export a family-scoped data package, and submit export, deletion, or correction requests. These actions are also written into care audit logs.
 
 For the local demo environment:
 
@@ -77,7 +89,7 @@ For the local demo environment:
 
 Use `kinecho.service-family-id` to bind the service miniapp to the correct family context instead of relying on the demo default `family_001`.
 
-Override these values in `application-local.yml` or `application-prod.yml` before deployment.
+Override these values in ignored local config files before deployment; do not commit real deployment secrets.
 
 `/api/admin/service-summary` is used by the admin service collaboration page to aggregate service staff capacity, active followups, pending alerts, and high-risk elderly cases.
 

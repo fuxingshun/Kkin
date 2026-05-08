@@ -26,6 +26,14 @@ function getStatusLabel(status: ServiceFollowup['status']) {
   return status;
 }
 
+function getConsultationStatusLabel(item: ServiceFollowup) {
+  return item.statusLabel || getStatusLabel(item.status);
+}
+
+function getConsultationActionLabel(item: ServiceFollowup) {
+  return item.nextAction || (item.status === 'scheduled' ? '进入咨询' : item.status === 'in_progress' ? '完成咨询' : '查看详情');
+}
+
 export default function ServiceConsultationsPage() {
   const [activeTab, setActiveTab] = useState(0);
   const [keyword, setKeyword] = useState('');
@@ -147,19 +155,19 @@ export default function ServiceConsultationsPage() {
                   <Text className='sc-consult-card__name'>{item.elderlyName}</Text>
                   <Text className='sc-consult-card__meta'>{formatDateTimeText(item.scheduledTime)}</Text>
                 </View>
-                <Text className={`sc-status sc-status--${item.status}`}>{getStatusLabel(item.status)}</Text>
+                <Text className={`sc-status sc-status--${item.status}`}>{getConsultationStatusLabel(item)}</Text>
               </View>
               <View className='sc-topic-box'>
                 <Text className='sc-topic-box__label'>咨询类型</Text>
                 <Text className='sc-topic-box__text'>{item.consultationType}</Text>
               </View>
-              {item.note ? (
+              {item.familyVisibleSummary || item.note ? (
                 <View className='sc-note-box'>
-                  <Text>{item.note}</Text>
+                  <Text>{item.familyVisibleSummary || item.note}</Text>
                 </View>
               ) : null}
               <View className='sc-consult-card__foot'>
-                <Text className='sc-consult-type'>{getStatusLabel(item.status)}</Text>
+                <Text className='sc-consult-type'>{getConsultationStatusLabel(item)}</Text>
                 <View className='sc-action-row'>
                   <Button
                     className='sc-action sc-action--ghost'
@@ -172,7 +180,7 @@ export default function ServiceConsultationsPage() {
                     loading={busyId === item.id}
                     onClick={() => void progressConsultation(item)}
                   >
-                    {item.status === 'scheduled' ? '进入咨询' : item.status === 'in_progress' ? '完成咨询' : '查看详情'}
+                    {getConsultationActionLabel(item)}
                   </Button>
                 </View>
               </View>

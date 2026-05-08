@@ -34,6 +34,12 @@ public class KinEchoApiController {
         return service.login(data);
     }
 
+    @GetMapping("/me")
+    public ResponseEntity<Map<String, Object>> me(@RequestHeader(value = "X-KinEcho-Session", required = false) String sessionToken,
+                                                  @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return service.me(sessionToken, authorization);
+    }
+
     @PostMapping("/auth/wechat-login")
     public ResponseEntity<Map<String, Object>> wechatLogin(@RequestBody Map<String, Object> data) {
         return service.wechatLogin(data);
@@ -52,6 +58,31 @@ public class KinEchoApiController {
     @PostMapping("/auth/service-certification")
     public ResponseEntity<Map<String, Object>> serviceCertification(@RequestBody Map<String, Object> data) {
         return service.submitServiceCertification(data);
+    }
+
+    @GetMapping("/admin/service-certifications")
+    public ResponseEntity<Map<String, Object>> getServiceCertifications(@RequestParam(required = false) String status,
+                                                                        @RequestParam(defaultValue = "100") int limit) {
+        return service.getServiceCertifications(status, limit);
+    }
+
+    @PutMapping("/admin/service-certifications/{certificationId}")
+    public ResponseEntity<Map<String, Object>> reviewServiceCertification(@PathVariable long certificationId,
+                                                                          @RequestBody(required = false) Map<String, Object> data) {
+        return service.reviewServiceCertification(certificationId, data);
+    }
+
+    @GetMapping("/admin/privacy/requests")
+    public ResponseEntity<Map<String, Object>> getPrivacyRequests(@RequestParam(required = false) String family_id,
+                                                                  @RequestParam(required = false) String status,
+                                                                  @RequestParam(defaultValue = "100") int limit) {
+        return service.getPrivacyRequests(family_id, status, limit);
+    }
+
+    @PutMapping("/admin/privacy/requests/{requestId}")
+    public ResponseEntity<Map<String, Object>> reviewPrivacyRequest(@PathVariable long requestId,
+                                                                    @RequestBody(required = false) Map<String, Object> data) {
+        return service.reviewPrivacyRequest(requestId, data);
     }
 
     @GetMapping("/family/schedules")
@@ -213,6 +244,27 @@ public class KinEchoApiController {
     public ResponseEntity<Map<String, Object>> getCareInsight(@RequestParam(required = false) String family_id,
                                                               @RequestParam(required = false) Long elderly_id) {
         return service.getCareInsight(family_id, elderly_id);
+    }
+
+    @PostMapping("/privacy/consents")
+    public ResponseEntity<Map<String, Object>> recordConsent(@RequestBody(required = false) Map<String, Object> data) {
+        return service.recordConsent(data);
+    }
+
+    @GetMapping("/privacy/consents")
+    public ResponseEntity<Map<String, Object>> getConsentRecords(@RequestParam(required = false) String family_id,
+                                                                 @RequestParam(required = false) Long elderly_id) {
+        return service.getConsentRecords(family_id, elderly_id);
+    }
+
+    @GetMapping("/privacy/export")
+    public ResponseEntity<Map<String, Object>> exportFamilyData(@RequestParam(required = false) String family_id) {
+        return service.exportFamilyData(family_id);
+    }
+
+    @PostMapping("/privacy/requests")
+    public ResponseEntity<Map<String, Object>> createPrivacyRequest(@RequestBody(required = false) Map<String, Object> data) {
+        return service.createPrivacyRequest(data);
     }
 
     @PostMapping(value = "/elderly/mental-screenings/live", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -381,6 +433,11 @@ public class KinEchoApiController {
         return service.getAdminServiceSummary(family_id);
     }
 
+    @GetMapping("/admin/families")
+    public ResponseEntity<Map<String, Object>> getAdminFamilies() {
+        return service.getAdminFamilies();
+    }
+
     @GetMapping("/admin/analytics")
     public ResponseEntity<Map<String, Object>> getAdminAnalytics(@RequestParam(required = false) String family_id,
                                                                  @RequestParam(defaultValue = "6") int months,
@@ -393,9 +450,42 @@ public class KinEchoApiController {
         return service.getCounselors();
     }
 
+    @GetMapping("/admin/counselors")
+    public ResponseEntity<Map<String, Object>> getAdminCounselors() {
+        return service.getAdminCounselors();
+    }
+
+    @PutMapping("/admin/counselors/{counselorId}")
+    public ResponseEntity<Map<String, Object>> updateAdminCounselor(@PathVariable long counselorId,
+                                                                    @RequestBody(required = false) Map<String, Object> data) {
+        return service.updateAdminCounselor(counselorId, data);
+    }
+
     @GetMapping("/psychology/resources")
     public ResponseEntity<Map<String, Object>> getPsychologyResources() {
         return service.getPsychologyResources();
+    }
+
+    @PostMapping("/admin/psychology/videos")
+    public ResponseEntity<Map<String, Object>> createAdminPsychologyVideo(@RequestBody(required = false) Map<String, Object> data) {
+        return service.createAdminPsychologyVideo(data);
+    }
+
+    @PutMapping("/admin/psychology/videos/{videoId}")
+    public ResponseEntity<Map<String, Object>> updateAdminPsychologyVideo(@PathVariable long videoId,
+                                                                          @RequestBody(required = false) Map<String, Object> data) {
+        return service.updateAdminPsychologyVideo(videoId, data);
+    }
+
+    @PostMapping("/admin/psychology/questions")
+    public ResponseEntity<Map<String, Object>> createAdminPsychologyQuestion(@RequestBody(required = false) Map<String, Object> data) {
+        return service.createAdminPsychologyQuestion(data);
+    }
+
+    @PutMapping("/admin/psychology/questions/{questionId}")
+    public ResponseEntity<Map<String, Object>> updateAdminPsychologyQuestion(@PathVariable long questionId,
+                                                                             @RequestBody(required = false) Map<String, Object> data) {
+        return service.updateAdminPsychologyQuestion(questionId, data);
     }
 
     @GetMapping("/psychology/questions/{questionId}")
@@ -436,6 +526,24 @@ public class KinEchoApiController {
     public ResponseEntity<Map<String, Object>> getMediaDetail(@PathVariable long mediaId,
                                                               @RequestParam(required = false) String family_id) {
         return service.getMediaDetail(mediaId, family_id);
+    }
+
+    @GetMapping("/family/media/{mediaId}/file")
+    public ResponseEntity<?> downloadMediaFile(@PathVariable long mediaId,
+                                               @RequestParam(required = false) String family_id) {
+        return service.downloadMediaAsset(mediaId, family_id, false);
+    }
+
+    @GetMapping("/family/media/{mediaId}/thumbnail")
+    public ResponseEntity<?> downloadMediaThumbnail(@PathVariable long mediaId,
+                                                    @RequestParam(required = false) String family_id) {
+        return service.downloadMediaAsset(mediaId, family_id, true);
+    }
+
+    @GetMapping("/ai/audio/{filename:.+}")
+    public ResponseEntity<?> downloadAiAudio(@PathVariable String filename,
+                                             @RequestParam(required = false) String token) {
+        return service.downloadAiAudio(filename, token);
     }
 
     @PutMapping("/family/media/{mediaId}")
@@ -502,8 +610,10 @@ public class KinEchoApiController {
                                                                @RequestPart(required = false) MultipartFile voice,
                                                                @RequestPart(required = false) MultipartFile audio,
                                                                @RequestParam(defaultValue = "User") String user,
+                                                               @RequestParam(required = false) String family_id,
+                                                               @RequestParam(required = false) Long elderly_id,
                                                                @RequestHeader HttpHeaders headers) {
-        return service.aiVoiceChat(file, voice, audio, user, headers);
+        return service.aiVoiceChat(file, voice, audio, user, family_id, elderly_id, headers);
     }
 
     @PostMapping("/elderly/ai/speak")
@@ -515,5 +625,10 @@ public class KinEchoApiController {
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> health() {
         return service.health();
+    }
+
+    @GetMapping("/admin/retention/summary")
+    public ResponseEntity<Map<String, Object>> retentionSummary() {
+        return service.retentionSummary();
     }
 }

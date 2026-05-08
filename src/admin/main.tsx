@@ -36,9 +36,13 @@ import {
 } from 'recharts';
 import {
   ADMIN_FAMILY_ID,
+  createPsychologyQuestion,
+  createPsychologyVideo,
   createUser as createUserRequest,
   deleteUser as deleteUserRequest,
+  getAdminFamilies,
   getAdminAnalytics,
+  getAdminCounselors,
   getAdminServiceSummary,
   getAlertStats,
   getAlerts,
@@ -46,18 +50,32 @@ import {
   getHealth,
   getMedia,
   getMoodStats,
+  getPsychologyResources,
+  getPrivacyRequests,
+  getRetentionSummary,
+  getServiceCertifications,
   getUsers,
   handleAlert as handleAlertRequest,
   loginAdmin as loginAdminRequest,
+  reviewPrivacyRequest,
+  reviewServiceCertification,
+  updatePsychologyQuestion,
+  updatePsychologyVideo,
+  updateAdminCounselor,
   updateUser as updateUserRequest,
   uploadMedia,
   type ApiAlert,
   type ApiAdminAnalytics,
+  type ApiAdminFamily,
   type ApiAdminServiceSummary,
   type ApiCareInsight,
+  type ApiCounselor,
   type ApiLoginResult,
   type ApiMedia,
   type ApiMoodStats,
+  type ApiPsychologyResources,
+  type ApiPrivacyRequest,
+  type ApiServiceCertification,
   type ApiUser,
 } from './api';
 import '../index.css';
@@ -66,7 +84,7 @@ import './admin.css';
 type AdminPage = 'dashboard' | 'users' | 'content' | 'alerts' | 'service' | 'analytics' | 'settings';
 type Notify = (title: string, body?: string) => void;
 type AdminNotice = { title: string; body: string } | null;
-type AdminSession = { username: string; displayName: string; role: string };
+type AdminSession = { username: string; displayName: string; role: string; sessionToken?: string };
 type UserFormState = {
   userType: 'elderly' | 'family';
   name: string;
@@ -176,6 +194,36 @@ function getMoodLabel(type: string) {
   return labels[type] || type;
 }
 
+function getPrivacyRequestTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    export: '数据导出',
+    delete: '数据删除',
+    correction: '数据更正',
+  };
+
+  return labels[type] || type;
+}
+
+function getPrivacyRequestStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    pending: '待处理',
+    processing: '处理中',
+    completed: '已完成',
+    rejected: '已拒绝',
+  };
+
+  return labels[status] || status;
+}
+
+function createContentSlug(title: string) {
+  const slug = title
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || `psychology-${Date.now()}`;
+}
+
 function formatAdminTime(value?: string) {
   if (!value) {
     return '--';
@@ -250,6 +298,7 @@ function getStoredAdminSession(): AdminSession | null {
       username: parsed.username,
       displayName: parsed.displayName || '平台管理员',
       role: parsed.role || 'admin',
+      sessionToken: typeof parsed.sessionToken === 'string' ? parsed.sessionToken : undefined,
     };
   } catch {
     return null;
@@ -283,6 +332,7 @@ function AdminLogin({ onLogin, notify }: { onLogin: (session: AdminSession) => v
         username: result.username || username.trim(),
         displayName: result.display_name || '平台管理员',
         role: result.role || 'admin',
+        sessionToken: result.session_token,
       };
       saveAdminSession(session);
       onLogin(session);
@@ -357,11 +407,17 @@ function AdminLayout({
   page,
   setPage,
   session,
+  families,
+  selectedFamilyId,
+  onFamilyChange,
   children,
 }: {
   page: AdminPage;
   setPage: (page: AdminPage) => void;
   session: AdminSession;
+  families: ApiAdminFamily[];
+  selectedFamilyId: string;
+  onFamilyChange: (familyId: string) => void;
   children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -403,6 +459,16 @@ function AdminLayout({
           <button className="admin-topbar__menu" type="button" onClick={() => setOpen(true)}>
             <Menu size={24} />
           </button>
+          <label className="admin-topbar__family">
+            <span>家庭档案</span>
+            <select value={selectedFamilyId} onChange={(event) => onFamilyChange(event.target.value)}>
+              {(families.length ? families : [{ family_id: selectedFamilyId, total_users: 0, elderly_count: 0, family_count: 0, open_alerts: 0 }]).map((family) => (
+                <option key={family.family_id} value={family.family_id}>
+                  {family.family_id} · 老人 {family.elderly_count} · 预警 {family.open_alerts}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="admin-topbar__profile">
             <div>
               <strong>{session.displayName}</strong>
@@ -448,7 +514,7 @@ function AdminNoticeDialog({ notice, onClose }: { notice: AdminNotice; onClose: 
   );
 }
 
-function DashboardPage({ notify }: { notify: Notify }) {
+function DashboardPage({ notify, selectedFamilyId }: { notify: Notify; selectedFamilyId: string }) {
   const [summary, setSummary] = useState<ApiAdminServiceSummary | null>(null);
   const [analytics, setAnalytics] = useState<ApiAdminAnalytics | null>(null);
   const [careInsight, setCareInsight] = useState<ApiCareInsight | null>(null);
@@ -463,11 +529,11 @@ function DashboardPage({ notify }: { notify: Notify }) {
       try {
         setLoading(true);
         const [nextSummary, nextAnalytics, alertsResult, nextMoodStats, nextCareInsight] = await Promise.all([
-          getAdminServiceSummary(),
-          getAdminAnalytics(undefined, { months: 6, days: 7 }),
-          getAlerts(undefined, { limit: 30 }),
-          getMoodStats(),
-          getCareInsight(),
+          getAdminServiceSummary(selectedFamilyId),
+          getAdminAnalytics(selectedFamilyId, { months: 6, days: 7 }),
+          getAlerts(selectedFamilyId, { limit: 30 }),
+          getMoodStats(selectedFamilyId),
+          getCareInsight(selectedFamilyId),
         ]);
 
         if (!mounted) {
@@ -494,7 +560,7 @@ function DashboardPage({ notify }: { notify: Notify }) {
     return () => {
       mounted = false;
     };
-  }, [notify]);
+  }, [notify, selectedFamilyId]);
   const overview = summary?.overview;
   const analyticsSummary = analytics?.summary;
   const casePreviewRows = (summary?.case_rows ?? []).slice(0, 3).map((row, index) => ({
@@ -677,7 +743,7 @@ function DashboardPage({ notify }: { notify: Notify }) {
             ) : (
               <div className="admin-list-row">
                 <div>
-                  <strong>{ADMIN_FAMILY_ID}</strong>
+                  <strong>{selectedFamilyId}</strong>
                   <span>暂无可展示的老人档案</span>
                 </div>
               </div>
@@ -689,7 +755,7 @@ function DashboardPage({ notify }: { notify: Notify }) {
   );
 }
 
-function UsersPage({ notify }: { notify: Notify }) {
+function UsersPage({ notify, selectedFamilyId }: { notify: Notify; selectedFamilyId: string }) {
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -702,7 +768,7 @@ function UsersPage({ notify }: { notify: Notify }) {
     userType: 'elderly',
     name: '',
     phone: '',
-    familyId: ADMIN_FAMILY_ID,
+    familyId: selectedFamilyId,
   });
   const pageSize = 2;
 
@@ -710,8 +776,8 @@ function UsersPage({ notify }: { notify: Notify }) {
     try {
       setLoading(true);
       const [nextUsers, alertsResult] = await Promise.all([
-        getUsers(),
-        getAlerts(undefined, { limit: 100 }),
+        getUsers(selectedFamilyId),
+        getAlerts(selectedFamilyId, { limit: 100 }),
       ]);
       setAdminUsers(toAdminUsers(nextUsers, alertsResult.alerts));
     } catch (error) {
@@ -719,7 +785,7 @@ function UsersPage({ notify }: { notify: Notify }) {
     } finally {
       setLoading(false);
     }
-  }, [notify]);
+  }, [notify, selectedFamilyId]);
 
   useEffect(() => {
     void loadUsers();
@@ -768,7 +834,7 @@ function UsersPage({ notify }: { notify: Notify }) {
       userType: 'elderly',
       name: '',
       phone: '',
-      familyId: ADMIN_FAMILY_ID,
+      familyId: selectedFamilyId,
     });
     setFormOpen(true);
   }
@@ -779,7 +845,7 @@ function UsersPage({ notify }: { notify: Notify }) {
       userType: user.userType === 'family' ? 'family' : 'elderly',
       name: user.name,
       phone: user.phone === '未填写' ? '' : user.phone,
-      familyId: user.familyId || ADMIN_FAMILY_ID,
+      familyId: user.familyId || selectedFamilyId,
     });
     setFormOpen(true);
   }
@@ -795,7 +861,7 @@ function UsersPage({ notify }: { notify: Notify }) {
     event.preventDefault();
     const nextName = formState.name.trim();
     const nextPhone = formState.phone.trim();
-    const nextFamilyId = formState.familyId.trim() || ADMIN_FAMILY_ID;
+    const nextFamilyId = formState.familyId.trim() || selectedFamilyId;
 
     if (!nextName) {
       notify('无法保存用户', '请填写用户姓名。');
@@ -1012,23 +1078,34 @@ function UsersPage({ notify }: { notify: Notify }) {
   );
 }
 
-function ContentPage({ notify }: { notify: Notify }) {
+function ContentPage({ notify, selectedFamilyId }: { notify: Notify; selectedFamilyId: string }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [contentItems, setContentItems] = useState<ApiMedia[]>([]);
+  const [psychologyResources, setPsychologyResources] = useState<ApiPsychologyResources | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [psychologySaving, setPsychologySaving] = useState(false);
 
-  const loadMedia = useCallback(async () => {
+  const psychologyVideos = psychologyResources?.videos ?? [];
+  const psychologyCategories = psychologyResources?.categories ?? [];
+  const psychologyQuestions = psychologyResources?.questions ?? [];
+  const psychologyReplyCount = psychologyQuestions.reduce((total, item) => total + (item.reply_count ?? 0), 0);
+
+  const loadContent = useCallback(async () => {
     try {
-      const nextMedia = await getMedia();
+      const [nextMedia, nextPsychologyResources] = await Promise.all([
+        getMedia(selectedFamilyId),
+        getPsychologyResources(),
+      ]);
       setContentItems(nextMedia);
+      setPsychologyResources(nextPsychologyResources);
     } catch (error) {
       notify('内容数据加载失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
     }
-  }, [notify]);
+  }, [notify, selectedFamilyId]);
 
   useEffect(() => {
-    void loadMedia();
-  }, [loadMedia]);
+    void loadContent();
+  }, [loadContent]);
 
   async function handleUpload(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -1041,13 +1118,101 @@ function ContentPage({ notify }: { notify: Notify }) {
     try {
       setUploading(true);
       const title = file.name.replace(/\.[^.]+$/, '') || '后台上传内容';
-      await uploadMedia(file, title, '由管理端上传的回忆内容');
+      await uploadMedia(file, title, '由管理端上传的回忆内容', selectedFamilyId);
       notify('上传成功', `已上传「${title}」，老人端推荐列表会同步读取。`);
-      await loadMedia();
+      await loadContent();
     } catch (error) {
       notify('上传失败', error instanceof Error ? error.message : '请检查文件格式和后端状态。');
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleCreatePsychologyVideo() {
+    const title = window.prompt('视频标题');
+    if (!title?.trim()) {
+      return;
+    }
+    const sourceUrl = window.prompt('视频来源 URL');
+    if (!sourceUrl?.trim()) {
+      notify('心理视频未创建', '视频来源 URL 不能为空。');
+      return;
+    }
+    const category = window.prompt('分类', '心理科普') || '心理科普';
+
+    try {
+      setPsychologySaving(true);
+      await createPsychologyVideo({
+        slug: createContentSlug(title),
+        title: title.trim(),
+        category: category.trim(),
+        source_url: sourceUrl.trim(),
+        speaker: 'KinEcho 内容运营',
+        summary: '由管理端维护的试点心理内容。',
+        license: 'pilot-curated',
+        is_active: 1,
+        sort_order: psychologyVideos.length + 1,
+      });
+      notify('心理视频已创建', `「${title.trim()}」已进入老人端心理百科。`);
+      await loadContent();
+    } catch (error) {
+      notify('心理视频创建失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+    } finally {
+      setPsychologySaving(false);
+    }
+  }
+
+  async function handleDeactivatePsychologyVideo(videoId: number, title: string) {
+    if (!window.confirm(`确认下架心理视频「${title}」吗？`)) {
+      return;
+    }
+    try {
+      setPsychologySaving(true);
+      await updatePsychologyVideo(videoId, { is_active: 0 });
+      notify('心理视频已下架', `「${title}」不会再出现在老人端心理百科。`);
+      await loadContent();
+    } catch (error) {
+      notify('心理视频下架失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+    } finally {
+      setPsychologySaving(false);
+    }
+  }
+
+  async function handleCreatePsychologyQuestion() {
+    const question = window.prompt('问答题目');
+    if (!question?.trim()) {
+      return;
+    }
+
+    try {
+      setPsychologySaving(true);
+      await createPsychologyQuestion({
+        question: question.trim(),
+        sort_order: psychologyQuestions.length + 1,
+        is_active: 1,
+      });
+      notify('问答条目已创建', `「${question.trim()}」已进入心理内容库。`);
+      await loadContent();
+    } catch (error) {
+      notify('问答条目创建失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+    } finally {
+      setPsychologySaving(false);
+    }
+  }
+
+  async function handleDeactivatePsychologyQuestion(questionId: number, question: string) {
+    if (!window.confirm(`确认下架问答「${question}」吗？`)) {
+      return;
+    }
+    try {
+      setPsychologySaving(true);
+      await updatePsychologyQuestion(questionId, { is_active: 0 });
+      notify('问答条目已下架', `「${question}」不会再出现在老人端心理百科。`);
+      await loadContent();
+    } catch (error) {
+      notify('问答条目下架失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+    } finally {
+      setPsychologySaving(false);
     }
   }
 
@@ -1074,6 +1239,75 @@ function ContentPage({ notify }: { notify: Notify }) {
         }
       />
       <section className="admin-panel">
+        <div className="admin-panel__head">
+          <div>
+            <h2>心理内容库</h2>
+            <p>同步老人端心理百科的视频、分类和问答库存</p>
+          </div>
+          <div className="admin-inline-actions">
+            <button className="admin-secondary" type="button" disabled={psychologySaving} onClick={() => void handleCreatePsychologyQuestion()}>
+              <Plus size={14} />问答
+            </button>
+            <button className="admin-primary" type="button" disabled={psychologySaving} onClick={() => void handleCreatePsychologyVideo()}>
+              <Plus size={14} />视频
+            </button>
+          </div>
+        </div>
+        <div className="admin-stat-grid">
+          {[
+            { label: '视频内容', value: psychologyVideos.length },
+            { label: '内容分类', value: psychologyCategories.length },
+            { label: '问答条目', value: psychologyQuestions.length },
+            { label: '累计回复', value: psychologyReplyCount },
+          ].map((stat) => (
+            <article className="admin-stat-card" key={stat.label}>
+              <strong>{stat.value}</strong>
+              <p>{stat.label}</p>
+            </article>
+          ))}
+        </div>
+        <div className="admin-list">
+          {psychologyVideos.slice(0, 3).map((item) => (
+            <div className="admin-list-row" key={`video-${item.id}`}>
+              <div>
+                <strong>{item.title}</strong>
+                <span>{item.category || '未分类'} · {item.duration || '未配置时长'} · {item.speaker || '未配置讲师'}</span>
+              </div>
+              <div className="admin-inline-actions">
+                <b>{item.sort_order ?? '--'}</b>
+                <button className="admin-secondary" type="button" disabled={psychologySaving} onClick={() => void handleDeactivatePsychologyVideo(item.id, item.title)}>
+                  下架
+                </button>
+              </div>
+            </div>
+          ))}
+          {psychologyQuestions.slice(0, 3).map((item) => (
+            <div className="admin-list-row" key={`question-${item.id}`}>
+              <div>
+                <strong>{item.question}</strong>
+                <span>问答内容 · {item.reply_count ?? 0} 条回复</span>
+              </div>
+              <div className="admin-inline-actions">
+                <b>{item.sort_order ?? '--'}</b>
+                <button className="admin-secondary" type="button" disabled={psychologySaving} onClick={() => void handleDeactivatePsychologyQuestion(item.id, item.question)}>
+                  下架
+                </button>
+              </div>
+            </div>
+          ))}
+          {!psychologyVideos.length && !psychologyQuestions.length ? (
+            <p className="admin-empty-text">暂无心理内容，请维护 psychology_videos、psychology_categories 或 psychology_questions 数据。</p>
+          ) : null}
+        </div>
+      </section>
+      <section className="admin-panel">
+        <div className="admin-panel__head">
+          <div>
+            <h2>回忆媒体库</h2>
+            <p>管理家庭可播放的图片和视频内容</p>
+          </div>
+          <Image size={20} color="#3b82a6" />
+        </div>
         <div className="admin-content-grid">
           {contentItems.map((item) => {
             const Icon = item.media_type === 'video' ? Video : Image;
@@ -1106,7 +1340,7 @@ function ContentPage({ notify }: { notify: Notify }) {
   );
 }
 
-function AlertsPage({ notify }: { notify: Notify }) {
+function AlertsPage({ notify, selectedFamilyId }: { notify: Notify; selectedFamilyId: string }) {
   const [activeTab, setActiveTab] = useState('全部');
   const [alertRows, setAlertRows] = useState<AdminAlert[]>([]);
   const [stats, setStats] = useState({ today: 0, unhandled: 0, handled: 0 });
@@ -1114,8 +1348,8 @@ function AlertsPage({ notify }: { notify: Notify }) {
   const loadAlerts = useCallback(async () => {
     try {
       const [alertsResult, nextStats] = await Promise.all([
-        getAlerts(undefined, { limit: 100 }),
-        getAlertStats(),
+        getAlerts(selectedFamilyId, { limit: 100 }),
+        getAlertStats(selectedFamilyId),
       ]);
       setAlertRows(toAdminAlerts(alertsResult.alerts));
       setStats({
@@ -1126,7 +1360,7 @@ function AlertsPage({ notify }: { notify: Notify }) {
     } catch (error) {
       notify('预警数据加载失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
     }
-  }, [notify]);
+  }, [notify, selectedFamilyId]);
 
   useEffect(() => {
     void loadAlerts();
@@ -1142,7 +1376,7 @@ function AlertsPage({ notify }: { notify: Notify }) {
 
   async function handleAlert(alert: AdminAlert) {
     try {
-      await handleAlertRequest(alert.id, '管理端已查看并完成处理');
+      await handleAlertRequest(alert.id, '管理端已查看并完成处理', selectedFamilyId);
       notify('预警已处理', `${alert.elder} 的「${alert.type}」已写入 Java 后端。`);
       await loadAlerts();
     } catch (error) {
@@ -1210,19 +1444,27 @@ function AlertsPage({ notify }: { notify: Notify }) {
   );
 }
 
-function ServicePageLive({ notify }: { notify: Notify }) {
+function ServicePageLive({ notify, selectedFamilyId }: { notify: Notify; selectedFamilyId: string }) {
   const [summary, setSummary] = useState<ApiAdminServiceSummary | null>(null);
+  const [certifications, setCertifications] = useState<ApiServiceCertification[]>([]);
+  const [counselors, setCounselors] = useState<ApiCounselor[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const loadServiceData = useCallback(() => {
     let mounted = true;
 
-    async function loadSummary() {
+    async function load() {
       try {
         setLoading(true);
-        const nextSummary = await getAdminServiceSummary();
+        const [nextSummary, nextCertifications, nextCounselors] = await Promise.all([
+          getAdminServiceSummary(selectedFamilyId),
+          getServiceCertifications('pending'),
+          getAdminCounselors(),
+        ]);
         if (mounted) {
           setSummary(nextSummary);
+          setCertifications(nextCertifications);
+          setCounselors(nextCounselors);
         }
       } catch (error) {
         if (mounted) {
@@ -1235,11 +1477,51 @@ function ServicePageLive({ notify }: { notify: Notify }) {
       }
     }
 
-    void loadSummary();
+    void load();
     return () => {
       mounted = false;
     };
-  }, [notify]);
+  }, [notify, selectedFamilyId]);
+
+  useEffect(() => loadServiceData(), [loadServiceData]);
+
+  async function handleCertification(certification: ApiServiceCertification, status: 'approved' | 'rejected') {
+    try {
+      const rejectReason = status === 'rejected' ? '资料不完整，请补充资质证明后重新提交。' : '';
+      await reviewServiceCertification(certification.id, {
+        status,
+        reviewer: 'admin',
+        reject_reason: rejectReason,
+      });
+      notify(status === 'approved' ? '认证已通过' : '认证已拒绝', `${certification.name} 的服务人员认证已更新。`);
+      setCertifications((current) => current.filter((item) => item.id !== certification.id));
+    } catch (error) {
+      notify('认证审核失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+    }
+  }
+
+  async function handleCounselorAvailability(counselor: ApiCounselor) {
+    try {
+      await updateAdminCounselor(counselor.id, {
+        available: counselor.available ? 0 : 1,
+        availability_text: counselor.available ? '暂停接单，等待运营重新开放时段' : '试点期间可预约',
+      });
+      notify(counselor.available ? '咨询师已暂停接单' : '咨询师已开放预约', `${counselor.name} 的可预约状态已更新。`);
+      setCounselors((current) =>
+        current.map((item) =>
+          item.id === counselor.id
+            ? {
+                ...item,
+                available: !counselor.available,
+                availability_text: counselor.available ? '暂停接单，等待运营重新开放时段' : '试点期间可预约',
+              }
+            : item
+        )
+      );
+    } catch (error) {
+      notify('咨询师状态更新失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+    }
+  }
 
   const overview = summary?.overview;
   const statCards = [
@@ -1285,6 +1567,64 @@ function ServicePageLive({ notify }: { notify: Notify }) {
             </article>
           );
         })}
+      </section>
+      <section className="admin-panel">
+        <div className="admin-panel__head">
+          <div>
+            <h2>服务认证审核</h2>
+            <p>{certifications.length ? `待审核 ${certifications.length} 条申请` : '暂无待审核服务人员申请'}</p>
+          </div>
+          <Shield size={20} color="#10b981" />
+        </div>
+        <div className="admin-list">
+          {certifications.length ? certifications.map((item) => (
+            <div className="admin-list-row" key={item.id}>
+              <div>
+                <strong>{item.name}</strong>
+                <span>{item.organization} · 工号 {item.staff_no} · {item.phone}</span>
+              </div>
+              <div className="admin-inline-actions">
+                <button className="admin-secondary" type="button" onClick={() => void handleCertification(item, 'rejected')}>
+                  拒绝
+                </button>
+                <button className="admin-primary" type="button" onClick={() => void handleCertification(item, 'approved')}>
+                  通过
+                </button>
+              </div>
+            </div>
+          )) : (
+            <p className="admin-empty-text">服务人员在小程序端提交认证后，会在这里进入审核队列。</p>
+          )}
+        </div>
+      </section>
+      <section className="admin-panel">
+        <div className="admin-panel__head">
+          <div>
+            <h2>咨询师管理</h2>
+            <p>{counselors.length ? `${counselors.length} 位咨询师，${counselors.filter((item) => item.available).length} 位可预约` : '暂无咨询师资料'}</p>
+          </div>
+          <Users size={20} color="#3b82f6" />
+        </div>
+        <div className="admin-list">
+          {counselors.length ? counselors.map((item) => (
+            <div className="admin-list-row" key={item.id}>
+              <div>
+                <strong>{item.name}</strong>
+                <span>{item.title} · {item.next_available_text || item.availability_text || '未配置可约时段'}</span>
+              </div>
+              <div className="admin-inline-actions">
+                <span className={item.available ? 'admin-badge admin-badge--low' : 'admin-badge admin-badge--medium'}>
+                  {item.available ? '可预约' : '暂停'}
+                </span>
+                <button className="admin-secondary" type="button" onClick={() => void handleCounselorAvailability(item)}>
+                  {item.available ? '暂停接单' : '开放预约'}
+                </button>
+              </div>
+            </div>
+          )) : (
+            <p className="admin-empty-text">维护 counselors 数据后，老人端和家属端会按可预约状态展示咨询师。</p>
+          )}
+        </div>
       </section>
       <section className="admin-two-col">
         <article className="admin-panel">
@@ -1335,7 +1675,7 @@ function ServicePageLive({ notify }: { notify: Notify }) {
   );
 }
 
-function AnalyticsPageLive({ notify }: { notify: Notify }) {
+function AnalyticsPageLive({ notify, selectedFamilyId }: { notify: Notify; selectedFamilyId: string }) {
   const [analytics, setAnalytics] = useState<ApiAdminAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -1345,7 +1685,7 @@ function AnalyticsPageLive({ notify }: { notify: Notify }) {
     async function loadAnalytics() {
       try {
         setLoading(true);
-        const nextAnalytics = await getAdminAnalytics(undefined, { months: 6, days: 7 });
+        const nextAnalytics = await getAdminAnalytics(selectedFamilyId, { months: 6, days: 7 });
         if (mounted) {
           setAnalytics(nextAnalytics);
         }
@@ -1364,7 +1704,7 @@ function AnalyticsPageLive({ notify }: { notify: Notify }) {
     return () => {
       mounted = false;
     };
-  }, [notify]);
+  }, [notify, selectedFamilyId]);
 
   const summary = analytics?.summary;
   const statCards = [
@@ -1440,30 +1780,57 @@ function AnalyticsPageLive({ notify }: { notify: Notify }) {
 }
 
 
-function SettingsPage({ notify }: { notify: Notify }) {
+function SettingsPage({ notify, selectedFamilyId }: { notify: Notify; selectedFamilyId: string }) {
   const [health, setHealth] = useState<string>('未同步');
+  const [privacyRequests, setPrivacyRequests] = useState<ApiPrivacyRequest[]>([]);
   const sections = [
     { icon: Settings, title: '基础配置', desc: '系统基础参数设置', items: ['平台名称', '联系方式', '服务协议'] },
     { icon: Shield, title: '角色权限', desc: '管理用户角色和权限', items: ['管理员权限', '运营人员权限', '内容管理权限'] },
     { icon: Bell, title: '通知设置', desc: '配置系统通知规则', items: ['预警通知', '任务提醒', '系统消息'] },
-    { icon: Database, title: '数据管理', desc: '数据备份和导出', items: ['数据备份', '数据导出', '日志管理'] },
+    { icon: Database, title: '数据管理', desc: '数据备份、导出和保留策略', items: ['数据备份', '数据导出', '保留策略', '日志管理'] },
   ];
+
+  const loadPrivacyRequests = useCallback(() => {
+    let mounted = true;
+
+    async function load() {
+      try {
+        const requests = await getPrivacyRequests(selectedFamilyId, 'pending');
+        if (mounted) {
+          setPrivacyRequests(requests);
+        }
+      } catch (error) {
+        if (mounted) {
+          notify('隐私请求加载失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+        }
+      }
+    }
+
+    void load();
+    return () => {
+      mounted = false;
+    };
+  }, [notify, selectedFamilyId]);
+
+  useEffect(() => loadPrivacyRequests(), [loadPrivacyRequests]);
 
   async function handleSettingItem(sectionTitle: string, item: string) {
     try {
       if (item === '数据备份' || item === '数据导出') {
-        const [nextUsers, alertsResult, nextMedia] = await Promise.all([
-          getUsers(),
-          getAlerts(undefined, { limit: 100 }),
-          getMedia(),
+        const [nextUsers, alertsResult, nextMedia, nextPrivacyRequests] = await Promise.all([
+          getUsers(selectedFamilyId),
+          getAlerts(selectedFamilyId, { limit: 100 }),
+          getMedia(selectedFamilyId),
+          getPrivacyRequests(selectedFamilyId, ''),
         ]);
         const payload = JSON.stringify(
           {
             exported_at: new Date().toISOString(),
-            family_id: ADMIN_FAMILY_ID,
+            family_id: selectedFamilyId,
             users: nextUsers,
             alerts: alertsResult.alerts,
             media: nextMedia,
+            privacy_requests: nextPrivacyRequests,
           },
           null,
           2
@@ -1473,10 +1840,16 @@ function SettingsPage({ notify }: { notify: Notify }) {
         return;
       }
 
-      if (item === '日志管理') {
-        const nextHealth = await getHealth();
+      if (item === '日志管理' || item === '保留策略') {
+        const [nextHealth, retention] = await Promise.all([
+          getHealth(),
+          getRetentionSummary(),
+        ]);
         setHealth(`${nextHealth.backend} · ${nextHealth.status}`);
-        notify('后端状态', `服务：${nextHealth.backend}\n状态：${nextHealth.status}\n时间：${nextHealth.timestamp}`);
+        notify(
+          item === '保留策略' ? '保留策略' : '后端状态',
+          `服务：${nextHealth.backend}\n状态：${nextHealth.status}\n时间：${nextHealth.timestamp}\nAI 语音回复：保留最近 ${retention.policy.ai_audio_retention_count} 个，签名 ${retention.policy.ai_audio_url_ttl_seconds} 秒\n老人录音：${retention.policy.ai_voice_retention_days} 天\n心理筛查帧：${retention.policy.mental_frame_retention_days} 天\nAI 聊天：${retention.policy.ai_chat_retention_days} 天\n咨询记录：${retention.policy.consultation_retention_days} 天\n审计日志：${retention.policy.audit_log_retention_days} 天`
+        );
         return;
       }
 
@@ -1486,9 +1859,64 @@ function SettingsPage({ notify }: { notify: Notify }) {
     }
   }
 
+  async function handlePrivacyRequest(request: ApiPrivacyRequest, status: 'processing' | 'completed' | 'rejected') {
+    try {
+      const processNote =
+        status === 'completed'
+          ? '已按试点隐私流程处理并记录。'
+          : status === 'processing'
+            ? '已进入人工核验流程。'
+            : '请求信息不足或不符合保留要求，已拒绝。';
+      await reviewPrivacyRequest(request.id, {
+        status,
+        reviewer: 'admin',
+        process_note: processNote,
+      });
+      notify('隐私请求已更新', `#${request.id} ${getPrivacyRequestTypeLabel(request.request_type)} 已标记为${getPrivacyRequestStatusLabel(status)}。`);
+      setPrivacyRequests((current) => current.filter((item) => item.id !== request.id));
+    } catch (error) {
+      notify('隐私请求处理失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+    }
+  }
+
   return (
     <div className="admin-page-stack admin-page-stack--narrow">
       <PageHeader title="系统设置" desc={`配置系统参数和权限 · 后端 ${health}`} />
+      <article className="admin-panel">
+        <div className="admin-panel__head">
+          <div>
+            <h2>隐私请求队列</h2>
+            <p>{privacyRequests.length ? `待处理 ${privacyRequests.length} 条删除、更正或导出请求` : '暂无待处理隐私请求'}</p>
+          </div>
+          <Shield size={20} color="#10b981" />
+        </div>
+        <div className="admin-list">
+          {privacyRequests.length ? privacyRequests.map((request) => (
+            <div className="admin-list-row" key={request.id}>
+              <div>
+                <strong>#{request.id} {getPrivacyRequestTypeLabel(request.request_type)}</strong>
+                <span>
+                  {request.family_id} · {request.requested_by || '家属端'} · {formatAdminTime(request.created_at)}
+                </span>
+                <span>{request.reason || '未填写原因'} · {getPrivacyRequestStatusLabel(request.status)}</span>
+              </div>
+              <div className="admin-inline-actions">
+                <button className="admin-secondary" type="button" onClick={() => void handlePrivacyRequest(request, 'rejected')}>
+                  拒绝
+                </button>
+                <button className="admin-secondary" type="button" onClick={() => void handlePrivacyRequest(request, 'processing')}>
+                  处理中
+                </button>
+                <button className="admin-primary" type="button" onClick={() => void handlePrivacyRequest(request, 'completed')}>
+                  完成
+                </button>
+              </div>
+            </div>
+          )) : (
+            <p className="admin-empty-text">家属端提交数据导出、删除或更正请求后，会在这里进入人工处理队列。</p>
+          )}
+        </div>
+      </article>
       {sections.map((section) => {
         const Icon = section.icon;
         return (
@@ -1524,28 +1952,70 @@ function AdminShell() {
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() => getStoredAdminSession());
   const [page, setPage] = useState<AdminPage>('dashboard');
   const [notice, setNotice] = useState<AdminNotice>(null);
+  const [families, setFamilies] = useState<ApiAdminFamily[]>([]);
+  const [selectedFamilyId, setSelectedFamilyId] = useState(ADMIN_FAMILY_ID);
   const notify = useCallback<Notify>((title, body = '操作已完成。') => {
     setNotice({ title, body });
+  }, []);
+
+  useEffect(() => {
+    if (!adminSession) {
+      setFamilies([]);
+      return;
+    }
+
+    let mounted = true;
+
+    async function loadFamilies() {
+      try {
+        const nextFamilies = await getAdminFamilies();
+        if (!mounted) {
+          return;
+        }
+
+        setFamilies(nextFamilies);
+        setSelectedFamilyId((current: string) => {
+          if (!nextFamilies.length || nextFamilies.some((family) => family.family_id === current)) {
+            return current || ADMIN_FAMILY_ID;
+          }
+
+          return nextFamilies[0].family_id;
+        });
+      } catch (error) {
+        if (mounted) {
+          notify('家庭列表加载失败', error instanceof Error ? error.message : '请确认 Java 后端已启动。');
+        }
+      }
+    }
+
+    void loadFamilies();
+    return () => {
+      mounted = false;
+    };
+  }, [adminSession, notify]);
+
+  const handleFamilyChange = useCallback((familyId: string) => {
+    setSelectedFamilyId(familyId || ADMIN_FAMILY_ID);
   }, []);
 
   const current = useMemo(() => {
     switch (page) {
       case 'users':
-        return <UsersPage notify={notify} />;
+        return <UsersPage notify={notify} selectedFamilyId={selectedFamilyId} />;
       case 'content':
-        return <ContentPage notify={notify} />;
+        return <ContentPage notify={notify} selectedFamilyId={selectedFamilyId} />;
       case 'alerts':
-        return <AlertsPage notify={notify} />;
+        return <AlertsPage notify={notify} selectedFamilyId={selectedFamilyId} />;
       case 'service':
-        return <ServicePageLive notify={notify} />;
+        return <ServicePageLive notify={notify} selectedFamilyId={selectedFamilyId} />;
       case 'analytics':
-        return <AnalyticsPageLive notify={notify} />;
+        return <AnalyticsPageLive notify={notify} selectedFamilyId={selectedFamilyId} />;
       case 'settings':
-        return <SettingsPage notify={notify} />;
+        return <SettingsPage notify={notify} selectedFamilyId={selectedFamilyId} />;
       default:
-        return <DashboardPage notify={notify} />;
+        return <DashboardPage notify={notify} selectedFamilyId={selectedFamilyId} />;
     }
-  }, [notify, page]);
+  }, [notify, page, selectedFamilyId]);
 
   if (!adminSession) {
     return (
@@ -1558,7 +2028,14 @@ function AdminShell() {
 
   return (
     <>
-      <AdminLayout page={page} setPage={setPage} session={adminSession}>
+      <AdminLayout
+        page={page}
+        setPage={setPage}
+        session={adminSession}
+        families={families}
+        selectedFamilyId={selectedFamilyId}
+        onFamilyChange={handleFamilyChange}
+      >
         {current}
       </AdminLayout>
       <AdminNoticeDialog notice={notice} onClose={() => setNotice(null)} />

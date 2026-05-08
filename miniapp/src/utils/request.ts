@@ -1,5 +1,8 @@
 import Taro from '@tarojs/taro';
 import { API_BASE_URL, API_BASE_URLS, API_TOKEN } from '@/config/runtime';
+import { getFamilySession } from '@/utils/familySession';
+import { getServiceSession } from '@/utils/serviceSession';
+import { getElderlySession } from '@/utils/session';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
@@ -18,6 +21,10 @@ interface UploadOptions {
 }
 
 type QueryValue = string | number | boolean | null | undefined;
+type FamilyScopedSession = {
+  familyId: string;
+  sessionToken?: string;
+};
 
 const ACTIVE_API_BASE_URL_KEY = 'kin-active-api-base-url';
 const ACTIVE_API_BASE_URL_SIGNATURE_KEY = 'kin-active-api-base-url-signature';
@@ -228,14 +235,88 @@ function extractNetworkError(error: unknown, url: string) {
   return `网络请求失败，请检查后端服务和手机网络：${url}`;
 }
 
-function authHeaders() {
+function decodeQueryPart(value: string) {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, ' '));
+  } catch {
+    return value;
+  }
+}
+
+function extractQueryParam(url: string, key: string) {
+  const queryIndex = url.indexOf('?');
+  if (queryIndex < 0) {
+    return '';
+  }
+
+  const query = url.slice(queryIndex + 1).split('#')[0];
+  for (const part of query.split('&')) {
+    if (!part) {
+      continue;
+    }
+
+    const [rawKey, ...rawValueParts] = part.split('=');
+    if (decodeQueryPart(rawKey) === key) {
+      return decodeQueryPart(rawValueParts.join('=')).trim();
+    }
+  }
+
+  return '';
+}
+
+function extractFamilyIdFromPath(url: string) {
+  const path = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '').replace(/^\/api(?=\/)/, '');
+  const match = path.match(/^\/users\/([^/#]+)$/);
+  return match ? decodeQueryPart(match[1]).trim() : '';
+}
+
+function extractFamilyIdFromData(data: unknown) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return '';
+  }
+
+  const value = (data as Record<string, unknown>).family_id;
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value).trim();
+  }
+
+  return '';
+}
+
+function getRequestedFamilyId(url: string, data?: unknown) {
+  return extractFamilyIdFromData(data) || extractQueryParam(url, 'family_id') || extractFamilyIdFromPath(url);
+}
+
+function selectSessionToken(requestedFamilyId: string) {
+  const sessions: FamilyScopedSession[] = [getElderlySession(), getFamilySession(), getServiceSession()];
+  const sessionsWithToken = sessions.filter((session) => typeof session.sessionToken === 'string' && session.sessionToken.trim());
+
+  if (requestedFamilyId) {
+    const matched = sessionsWithToken.find((session) => session.familyId === requestedFamilyId);
+    return matched?.sessionToken?.trim() || '';
+  }
+
+  return sessionsWithToken[0]?.sessionToken?.trim() || '';
+}
+
+function authHeaders(url = '', data?: unknown) {
   const token = API_TOKEN.trim();
-  return token
-    ? {
-        Authorization: `Bearer ${token}`,
-        'X-KinEcho-Token': token,
-      }
-    : {};
+  const headers: Record<string, string> = {};
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+    headers['X-KinEcho-Token'] = token;
+  }
+
+  const sessionToken = selectSessionToken(getRequestedFamilyId(url, data));
+  if (sessionToken) {
+    headers['X-KinEcho-Session'] = sessionToken;
+  }
+
+  return headers;
 }
 
 export function buildQueryString(params: Record<string, QueryValue>) {
@@ -262,7 +343,7 @@ export async function request<T>(path: string, options: RequestOptions = {}) {
         timeout: options.timeout || DEFAULT_TIMEOUT,
         header: {
           'Content-Type': 'application/json',
-          ...authHeaders(),
+          ...authHeaders(url, options.data),
           ...options.header,
         },
       });
@@ -311,7 +392,7 @@ export async function uploadFile<T>(path: string, options: UploadOptions) {
         name: options.name || 'file',
         formData: options.formData,
         timeout: options.timeout || DEFAULT_TIMEOUT,
-        header: authHeaders(),
+        header: authHeaders(url, options.formData),
       });
     } catch (error) {
       lastError = error;

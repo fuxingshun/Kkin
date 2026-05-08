@@ -3,7 +3,7 @@ import { type Consultation, type FamilyUser, type MoodRecord } from '@/services/
 import { type CareInsight, type FamilyAlert } from '@/services/family';
 import { formatDateTimeValue } from '@/utils/format';
 import { buildQueryString, request } from '@/utils/request';
-import { getCurrentServiceFamilyId } from '@/utils/serviceSession';
+import { getCurrentServiceFamilyId, requireCurrentServiceFamilyId } from '@/utils/serviceSession';
 
 export interface ServiceTask {
   id: number;
@@ -15,6 +15,11 @@ export interface ServiceTask {
   priority: 'high' | 'medium' | 'low';
   status: 'pending' | 'processing' | 'completed';
   createdAt: string;
+  slaMinutes: number;
+  slaDeadlineAt: string;
+  overdue: boolean;
+  remainingMinutes: number;
+  escalationHint: string;
 }
 
 export interface ServiceCase {
@@ -38,6 +43,11 @@ export interface ServiceFollowup {
   consultationType: string;
   scheduledTime: string;
   status: Consultation['status'];
+  statusLabel?: string;
+  familyVisibleSummary?: string;
+  nextAction?: string;
+  canCancel?: boolean;
+  canReschedule?: boolean;
   note?: string;
 }
 
@@ -74,6 +84,11 @@ interface ServiceTaskApi {
   priority: ServiceTask['priority'] | string;
   status: ServiceTask['status'] | string;
   created_at: string;
+  sla_minutes?: number;
+  sla_deadline_at?: string;
+  overdue?: boolean;
+  remaining_minutes?: number;
+  escalation_hint?: string;
 }
 
 interface ServiceCaseApi {
@@ -108,6 +123,11 @@ interface ServiceFollowupApi {
   consultation_type: Consultation['consultation_type'];
   scheduled_time: string;
   status: Consultation['status'];
+  status_label?: string;
+  family_visible_summary?: string;
+  next_action?: string;
+  can_cancel?: boolean;
+  can_reschedule?: boolean;
   note?: string;
 }
 
@@ -116,6 +136,10 @@ function resolveFamilyId(familyId?: string) {
     return getCurrentServiceFamilyId();
   }
   return getCurrentServiceFamilyId(familyId);
+}
+
+function resolveWriteFamilyId(_familyId?: string) {
+  return requireCurrentServiceFamilyId();
 }
 
 function normalizeRisk(value?: string): ServiceCase['risk'] {
@@ -154,6 +178,11 @@ function toServiceTask(item: ServiceTaskApi): ServiceTask {
     priority: normalizePriority(item.priority),
     status: normalizeTaskStatus(item.status),
     createdAt: item.created_at,
+    slaMinutes: Number(item.sla_minutes || 0),
+    slaDeadlineAt: item.sla_deadline_at || '',
+    overdue: Boolean(item.overdue),
+    remainingMinutes: Number(item.remaining_minutes || 0),
+    escalationHint: item.escalation_hint || '',
   };
 }
 
@@ -181,6 +210,11 @@ function toServiceFollowup(item: ServiceFollowupApi): ServiceFollowup {
     consultationType: mapConsultationType(item.consultation_type),
     scheduledTime: item.scheduled_time,
     status: item.status,
+    statusLabel: item.status_label,
+    familyVisibleSummary: item.family_visible_summary,
+    nextAction: item.next_action,
+    canCancel: item.can_cancel,
+    canReschedule: item.can_reschedule,
     note: item.note,
   };
 }
@@ -247,7 +281,7 @@ export async function advanceFollowupStatus(consultation: ServiceFollowup) {
   const data = await request<{ success: boolean }>(`/service/followups/${consultation.id}/status`, {
     method: 'PUT',
     data: {
-      family_id: resolveFamilyId(),
+      family_id: resolveWriteFamilyId(),
       status: nextStatus,
     },
   });
@@ -264,7 +298,7 @@ export async function createQuickFollowup(
   const data = await request<{ consultation_id: number }>('/service/followups', {
     method: 'POST',
     data: {
-      family_id: resolveFamilyId(familyId),
+      family_id: resolveWriteFamilyId(familyId),
       elderly_id: elderlyId,
       consultation_type: consultationType,
       scheduled_time: formatDateTimeValue(scheduledAt),
@@ -285,7 +319,7 @@ export async function createServiceRecord(payload: {
   const data = await request<{ consultation_id: number }>('/service/records', {
     method: 'POST',
     data: {
-      family_id: resolveFamilyId(payload.familyId || DEFAULT_FAMILY_ID),
+      family_id: resolveWriteFamilyId(payload.familyId),
       elderly_id: payload.elderlyId,
       alert_id: payload.alertId,
       content: payload.content,

@@ -25,7 +25,7 @@ export interface FamilyAlert {
   family_id: string;
   elderly_id?: number;
   elderly_name?: string;
-  alert_type: 'sos_emergency' | 'contact_family' | 'medication' | 'emotion' | 'inactive' | 'emergency';
+  alert_type: 'sos_emergency' | 'contact_family' | 'medication' | 'emotion' | 'inactive' | 'emergency' | 'ai_crisis';
   level: 'low' | 'medium' | 'high';
   title?: string;
   message: string;
@@ -59,7 +59,9 @@ export interface Media {
   title: string;
   description?: string;
   file_path: string;
+  file_url?: string;
   thumbnail_path?: string;
+  thumbnail_url?: string;
   tags: string[];
   time_windows: string[];
   moods: string[];
@@ -100,6 +102,7 @@ export interface RecentPlay {
   title: string;
   media_type: 'photo' | 'video';
   thumbnail_path: string | null;
+  thumbnail_url?: string | null;
   played_at: string;
   likes: number;
   dislikes: number;
@@ -171,6 +174,9 @@ export interface Counselor {
   specialty?: string;
   rating?: string;
   avatar?: string;
+  availability_text?: string;
+  available_slot_count?: number;
+  next_available_text?: string;
   available: boolean;
 }
 
@@ -186,6 +192,11 @@ export interface Consultation {
   scheduled_time: string;
   duration: number;
   status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | string;
+  status_label?: string;
+  family_visible_summary?: string;
+  next_action?: string;
+  can_cancel?: boolean;
+  can_reschedule?: boolean;
   note?: string;
   created_at?: string;
 }
@@ -216,6 +227,34 @@ export interface CareInsight {
     active_followups: number;
   };
   generated_at: string;
+}
+
+export interface ConsentRecord {
+  id: number;
+  family_id: string;
+  elderly_id?: number;
+  user_id?: number;
+  consent_type: string;
+  version: string;
+  accepted: boolean | number;
+  actor_role?: string;
+  actor_name?: string;
+  source?: string;
+  metadata?: Record<string, unknown>;
+  created_at?: string;
+}
+
+export interface PrivacyRequestResult {
+  success: boolean;
+  request_id: number;
+  status: 'pending' | string;
+}
+
+export interface FamilyDataExport {
+  success: boolean;
+  family_id: string;
+  exported_at: string;
+  data: Record<string, unknown[]>;
 }
 
 export const moodLabelMap: Record<MoodType, string> = {
@@ -406,6 +445,57 @@ export async function getCareInsight(familyId = DEFAULT_FAMILY_ID, elderlyId?: n
     elderly_id: elderlyId,
   });
   return request<CareInsight>(`/care/insight?${query}`);
+}
+
+export async function recordConsent(payload: {
+  family_id?: string;
+  elderly_id?: number;
+  user_id?: number;
+  consent_type: string;
+  version: string;
+  accepted?: boolean;
+  actor_role?: string;
+  actor_name?: string;
+  source?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<{ success: boolean; consent_id: number }>('/privacy/consents', {
+    method: 'POST',
+    data: {
+      ...payload,
+      family_id: resolveFamilyId(payload.family_id),
+    },
+  });
+}
+
+export async function getConsentRecords(familyId = DEFAULT_FAMILY_ID, elderlyId?: number) {
+  const query = buildQueryString({
+    family_id: resolveFamilyId(familyId),
+    elderly_id: elderlyId,
+  });
+  return request<{ consents: ConsentRecord[] }>(`/privacy/consents?${query}`);
+}
+
+export async function exportFamilyData(familyId = DEFAULT_FAMILY_ID) {
+  const query = buildQueryString({ family_id: resolveFamilyId(familyId) });
+  return request<FamilyDataExport>(`/privacy/export?${query}`);
+}
+
+export async function createPrivacyRequest(payload: {
+  family_id?: string;
+  elderly_id?: number;
+  request_type: 'export' | 'delete' | 'correction';
+  requested_by?: string;
+  reason?: string;
+  metadata?: Record<string, unknown>;
+}) {
+  return request<PrivacyRequestResult>('/privacy/requests', {
+    method: 'POST',
+    data: {
+      ...payload,
+      family_id: resolveFamilyId(payload.family_id),
+    },
+  });
 }
 
 export async function getFamilyUsers(familyId = DEFAULT_FAMILY_ID) {

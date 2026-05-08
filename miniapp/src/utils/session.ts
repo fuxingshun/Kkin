@@ -13,6 +13,7 @@ export interface ElderlySession {
   elderlyId: number;
   elderName: string;
   wechatOpenid?: string;
+  sessionToken?: string;
 }
 
 const ELDERLY_SESSION_KEY = 'kin-elderly-session';
@@ -59,7 +60,33 @@ export function getElderlySession(): ElderlySession {
     elderlyId: normalizeElderlyId(stored?.elderlyId),
     elderName: normalizeElderName(stored?.elderName),
     wechatOpenid: normalizeText(stored?.wechatOpenid),
+    sessionToken: normalizeText(stored?.sessionToken),
   };
+}
+
+export function hasElderlySessionContext(session = getElderlySession()) {
+  return Boolean(
+    session.sessionToken ||
+      session.wechatOpenid ||
+      (session.familyId && session.familyId !== DEFAULT_FAMILY_ID) ||
+      (session.elderlyId && session.elderlyId !== DEFAULT_ELDERLY_ID)
+  );
+}
+
+export function requireCurrentElderlyFamilyId(session = getElderlySession()) {
+  if (!hasElderlySessionContext(session)) {
+    throw new Error('请先以老人身份登录');
+  }
+
+  return session.familyId;
+}
+
+export function requireCurrentElderlyId(session = getElderlySession()) {
+  if (!hasElderlySessionContext(session)) {
+    throw new Error('请先以老人身份登录');
+  }
+
+  return session.elderlyId;
 }
 
 export function saveElderlySession(session: Partial<ElderlySession>) {
@@ -70,6 +97,7 @@ export function saveElderlySession(session: Partial<ElderlySession>) {
     elderlyId: normalizeElderlyId(session.elderlyId ?? current.elderlyId),
     elderName: normalizeElderName(session.elderName ?? current.elderName),
     wechatOpenid: normalizeText(session.wechatOpenid ?? current.wechatOpenid),
+    sessionToken: normalizeText(session.sessionToken ?? current.sessionToken),
   };
 
   Taro.setStorageSync(ELDERLY_SESSION_KEY, next);

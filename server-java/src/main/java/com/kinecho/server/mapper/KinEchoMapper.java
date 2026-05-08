@@ -645,6 +645,41 @@ public class KinEchoMapper {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """.formatted(id, varchar64, integer, varchar32, varchar64, varchar64, text, text));
+
+        jdbc.execute("""
+            CREATE TABLE IF NOT EXISTS consent_records (
+                id %s,
+                family_id %s NOT NULL,
+                elderly_id %s,
+                user_id %s,
+                consent_type %s NOT NULL,
+                version %s NOT NULL,
+                accepted %s DEFAULT 1,
+                actor_role %s,
+                actor_name %s,
+                source %s,
+                metadata %s,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """.formatted(id, varchar64, bigInt, bigInt, varchar64, varchar64, integer, varchar32, varchar64, varchar64, text));
+
+        jdbc.execute("""
+            CREATE TABLE IF NOT EXISTS privacy_requests (
+                id %s,
+                family_id %s NOT NULL,
+                elderly_id %s,
+                request_type %s NOT NULL,
+                status %s DEFAULT 'pending',
+                requested_by %s,
+                reason %s,
+                processed_by %s,
+                process_note %s,
+                metadata %s,
+                processed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """.formatted(id, varchar64, bigInt, varchar64, varchar32, varchar64, text, varchar64, text, text));
     }
 
     private void migrateSchema() {
@@ -851,6 +886,33 @@ public class KinEchoMapper {
             "summary " + text,
             "detail " + text,
             "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("consent_records", List.of(
+            "family_id " + varchar64,
+            "elderly_id " + bigInt,
+            "user_id " + bigInt,
+            "consent_type " + varchar64,
+            "version " + varchar64,
+            "accepted " + integer + " DEFAULT 1",
+            "actor_role " + varchar32,
+            "actor_name " + varchar64,
+            "source " + varchar64,
+            "metadata " + text,
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        ));
+        migrateColumns("privacy_requests", List.of(
+            "family_id " + varchar64,
+            "elderly_id " + bigInt,
+            "request_type " + varchar64,
+            "status " + varchar32 + " DEFAULT 'pending'",
+            "requested_by " + varchar64,
+            "reason " + text,
+            "processed_by " + varchar64,
+            "process_note " + text,
+            "metadata " + text,
+            "processed_at TIMESTAMP",
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
         ));
 
         safeUpdate("UPDATE users SET is_active = 1 WHERE is_active IS NULL");
@@ -1190,6 +1252,8 @@ public class KinEchoMapper {
         createIndex("idx_family_alerts_handled", "family_alerts", "handled, created_at DESC");
         createIndex("idx_care_audit_family_created", "care_audit_logs", "family_id, created_at DESC");
         createIndex("idx_care_audit_elderly_created", "care_audit_logs", "elderly_id, created_at DESC");
+        createIndex("idx_consent_family_created", "consent_records", "family_id, created_at DESC");
+        createIndex("idx_privacy_requests_family_created", "privacy_requests", "family_id, created_at DESC");
         createIndex("idx_psychology_videos_active_sort", "psychology_videos", "is_active, sort_order, id");
         createIndex("idx_psychology_categories_active_sort", "psychology_categories", "is_active, sort_order, id");
         createIndex("idx_psychology_questions_active_sort", "psychology_questions", "is_active, sort_order, id");

@@ -324,7 +324,9 @@ export default function ElderlyCounselorDetailPage() {
 
         <View id='cd-section-schedule' className='cd-card'>
           <Text className='cd-section-title'>可约时间（北京时间）</Text>
-          <Text className='cd-section-desc'>选择咨询师已开放的咨询时间，预约将同步到家属端和服务端。</Text>
+          <Text className='cd-section-desc'>
+            {counselor?.next_available_text || '选择咨询师已开放的咨询时间，预约将同步到家属端和服务端。'}
+          </Text>
           <Text className='cd-calendar-month'>{calendar.month || '--'}</Text>
 
           <View className='cd-week-row'>
